@@ -7,20 +7,26 @@ const offres = [
   {
     nom: 'Découverte',
     prix: 'Gratuit',
+    periode: '',
+    detail: 'Sans engagement',
     texte: 'Pour suivre les grandes tendances.',
     points: ['Tendances mensuelles', 'Une fiche marché par trimestre', 'Bulletin résumé'],
     vedette: false,
   },
   {
     nom: 'Premium',
-    prix: 'Tarif à venir',
+    prix: '15 000 FCFA',
+    periode: '/mois',
+    detail: '≈ 23 € · ou 150 000 FCFA/an (2 mois offerts)',
     texte: 'Pour décider chaque semaine.',
     points: ['Baromètre des prix hebdomadaire', 'Volumes détaillés', 'Alertes normes instantanées', 'Paiement Mobile Money'],
     vedette: true,
   },
   {
     nom: 'Rapports',
-    prix: 'À l’unité',
+    prix: '75 000 FCFA',
+    periode: '/rapport',
+    detail: '≈ 115 € · fiche marché seule : 35 000 FCFA (≈ 53 €)',
     texte: 'Pour préparer une filière ou un marché.',
     points: ['Analyse sectorielle complète', 'Exigences par pays', 'Mise en relation acheteurs'],
     vedette: false,
@@ -48,7 +54,11 @@ export default function Offres() {
                   )}
                   <h3 className="font-display text-xl font-bold">{o.nom}</h3>
                   <p className="mt-1 text-muted">{o.texte}</p>
-                  <p className="mt-6 font-display text-3xl font-extrabold">{o.prix}</p>
+                  <p className="mt-6 font-display text-3xl font-extrabold tabular-nums">
+                    {o.prix}
+                    {o.periode && <span className="ml-1 text-base font-medium text-muted">{o.periode}</span>}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">{o.detail}</p>
                   <ul className="mt-6 flex-1 space-y-3">
                     {o.points.map((p) => (
                       <li key={p} className="flex gap-3 text-sm">
