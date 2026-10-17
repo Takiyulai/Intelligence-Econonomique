@@ -1,0 +1,444 @@
+{
+  "name": "01 Baromètre mangue",
+  "nodes": [
+    {
+      "id": "7656528a-a5e4-460a-a77b-f8f813935a81",
+      "name": "Formulaire cotation",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b77fe7ad-8cc8-4be9-9997-bfe504c4a9fa",
+      "parameters": {
+        "authentication": "basicAuth",
+        "formTitle": "Nouvelle cotation mangue",
+        "formDescription": "Saisir un prix grossiste relevé sur le RNM (FranceAgriMer). Un formulaire par origine et par variété.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Date de la cotation",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Marché",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Rungis"
+                  },
+                  {
+                    "option": "Perpignan"
+                  },
+                  {
+                    "option": "Marseille"
+                  },
+                  {
+                    "option": "Autre"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Origine",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Côte d'Ivoire"
+                  },
+                  {
+                    "option": "Sénégal"
+                  },
+                  {
+                    "option": "Mali"
+                  },
+                  {
+                    "option": "Burkina Faso"
+                  },
+                  {
+                    "option": "Autre"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Variété",
+              "placeholder": "Kent, Keitt, Amélie…"
+            },
+            {
+              "fieldLabel": "Calibre",
+              "placeholder": "ex. 8, 10, 12"
+            },
+            {
+              "fieldLabel": "Prix minimum (€/kg)",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Prix maximum (€/kg)",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Source",
+              "placeholder": "RNM FranceAgriMer",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Lien de la source",
+              "placeholder": "https://rnm.franceagrimer.fr/…"
+            }
+          ]
+        },
+        "responseMode": "onReceived",
+        "options": {
+          "respondWithOptions": {
+            "values": {
+              "respondWith": "text",
+              "formSubmittedText": "Cotation enregistrée. Le commentaire IA sera mis à jour d'ici une minute."
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "02650bb5-2306-4dad-81b1-1d5b7a00840f",
+      "name": "Préparer la cotation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Vérifie et normalise la saisie du formulaire avant l'enregistrement.\nconst f = $input.first().json;\nconst nombre = (v) => Number(String(v ?? '').replace(',', '.').trim());\n\nconst prixMin = nombre(f['Prix minimum (€/kg)']);\nconst prixMax = nombre(f['Prix maximum (€/kg)']);\nif (!(prixMin > 0) || !(prixMax > 0)) throw new Error('Les prix doivent être des nombres positifs (ex. 2,40).');\nif (prixMin > prixMax) throw new Error('Le prix minimum est supérieur au prix maximum.');\n\nconst date = String(f['Date de la cotation'] ?? '').slice(0, 10);\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) throw new Error('Date invalide : ' + f['Date de la cotation']);\n\nreturn [{\n  json: {\n    date_cotation: date,\n    marche: f['Marché'],\n    origine: f['Origine'],\n    variete: String(f['Variété'] ?? '').trim(),\n    calibre: String(f['Calibre'] ?? '').trim(),\n    prix_min: prixMin,\n    prix_max: prixMax,\n    source: String(f['Source'] ?? '').trim() || 'RNM FranceAgriMer',\n    source_url: String(f['Lien de la source'] ?? '').trim(),\n  },\n}];"
+      }
+    },
+    {
+      "id": "591dfb63-05f4-41d3-95a4-5690b3378723",
+      "name": "Enregistrer dans Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ie.cotations (produit, date_cotation, marche, origine, variete, calibre, prix_min, prix_max, source, source_url)\nvalues ('mangue', $1::date, $2, $3, $4, $5, $6::numeric, $7::numeric, $8, nullif($9, ''))\non conflict (produit, date_cotation, marche, origine, variete, calibre)\ndo update set prix_min = excluded.prix_min, prix_max = excluded.prix_max,\n              source = excluded.source, source_url = excluded.source_url, cree_le = now()\nreturning id, date_cotation::text, prix_moyen::float8;",
+        "options": {
+          "queryReplacement": "={{ [ $json.date_cotation, $json.marche, $json.origine, $json.variete, $json.calibre, $json.prix_min, $json.prix_max, $json.source, $json.source_url ] }}"
+        }
+      }
+    },
+    {
+      "id": "3d7bb8c9-adba-4817-9e54-571e1d541e6c",
+      "name": "Lire la série",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        0
+      ],
+      "executeOnce": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select s.cle, s.semaine, s.prix, s.nb_cotations, s.derniere_date,\n  (select texte from ie.syntheses y where y.produit = 'mangue' order by y.semaine desc limit 1) as commentaire,\n  (select string_agg(distinct marche, ', ') from ie.cotations where produit = 'mangue') as marches\nfrom (\n  select to_char(date_cotation, 'IYYY-IW') as cle,\n         'S' || to_char(date_cotation, 'IW') as semaine,\n         round(avg(prix_moyen), 2)::float8 as prix,\n         count(*)::int as nb_cotations,\n         max(date_cotation)::text as derniere_date\n  from ie.cotations\n  where produit = 'mangue'\n  group by 1, 2\n  order by 1 desc\n  limit 12\n) s\norder by s.cle;",
+        "options": {}
+      }
+    },
+    {
+      "id": "215623d6-7c1d-4b17-9728-76d5def54581",
+      "name": "Préparer le prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Rassemble la série hebdomadaire en un seul texte pour l'IA.\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nif (!lignes.length) throw new Error('Aucune cotation en base.');\nconst tableau = lignes\n  .map((r) => `${r.semaine} (${r.cle}) : ${Number(r.prix).toFixed(2)} €/kg, ${r.nb_cotations} cotation(s)`)\n  .join('\\n');\nreturn [{ json: { cle_derniere: lignes.at(-1).cle, donnees: tableau } }];"
+      }
+    },
+    {
+      "id": "921857e7-c8f8-4560-8609-ea4821ed1dab",
+      "name": "Rédiger le commentaire",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1100,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tu es analyste de marché pour des exportateurs de mangues d'Afrique de l'Ouest (Côte d'Ivoire, Sénégal) qui vendent en France.\n\nVoici le prix moyen grossiste de la mangue, semaine par semaine (le plus récent en dernier) :\n{{ $json.donnees }}\n\nÉcris un commentaire de 3 phrases maximum, en français simple, pour un exportateur :\n1. l'évolution de la dernière semaine par rapport à la précédente (en %) ;\n2. le niveau actuel par rapport à la moyenne de la période ;\n3. un conseil prudent pour la prochaine expédition.\n\nRègles : n'utilise que les chiffres ci-dessus, n'invente aucune cause ni aucun chiffre. S'il n'y a qu'une semaine, dis simplement que la tendance n'est pas encore mesurable. Pas de titre, pas de liste, pas de mise en forme."
+      }
+    },
+    {
+      "id": "2f08d2ef-4bf4-4521-9000-670362fb1e1f",
+      "name": "OpenRouter (modèle gratuit)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        220
+      ],
+      "parameters": {
+        "model": "openrouter/free",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 400
+        }
+      }
+    },
+    {
+      "id": "45511bc3-133f-41a3-ac02-44ac8daf3a47",
+      "name": "Enregistrer le commentaire",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1420,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ie.syntheses (produit, semaine, texte, modele)\nvalues ('mangue', $1, $2, 'openrouter/free')\non conflict (produit, semaine)\ndo update set texte = excluded.texte, modele = excluded.modele, cree_le = now();",
+        "options": {
+          "queryReplacement": "={{ [ $('Préparer le prompt').item.json.cle_derniere, $json.text.trim() ] }}"
+        }
+      }
+    },
+    {
+      "id": "5a371191-12b7-410c-a526-e1dc9daa2cef",
+      "name": "API baromètre (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        460
+      ],
+      "webhookId": "d18cb401-2ac6-48ec-b6a5-1d51d838a878",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "barometre-mangue",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "5ffd2565-1958-4ac2-ae8f-25bf88b68ba2",
+      "name": "Lire la série (API)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        460
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select s.cle, s.semaine, s.prix, s.nb_cotations, s.derniere_date,\n  (select texte from ie.syntheses y where y.produit = 'mangue' order by y.semaine desc limit 1) as commentaire,\n  (select string_agg(distinct marche, ', ') from ie.cotations where produit = 'mangue') as marches\nfrom (\n  select to_char(date_cotation, 'IYYY-IW') as cle,\n         'S' || to_char(date_cotation, 'IW') as semaine,\n         round(avg(prix_moyen), 2)::float8 as prix,\n         count(*)::int as nb_cotations,\n         max(date_cotation)::text as derniere_date\n  from ie.cotations\n  where produit = 'mangue'\n  group by 1, 2\n  order by 1 desc\n  limit 12\n) s\norder by s.cle;",
+        "options": {}
+      }
+    },
+    {
+      "id": "61e7b6e5-3d0c-4337-b289-7429408057a3",
+      "name": "Format du site",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        460
+      ],
+      "parameters": {
+        "jsCode": "// Met la série au format attendu par le site (src/services/marketData.ts).\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nconst derniere = lignes.at(-1) ?? {};\nreturn [{\n  json: {\n    produit: 'mangue',\n    marche: derniere.marches || 'Rungis',\n    unite: '€/kg',\n    source: 'RNM FranceAgriMer, cotations grossistes saisies chaque semaine',\n    points: lignes.map((r) => ({ semaine: r.semaine, prix: Number(r.prix) })),\n    commentaire: derniere.commentaire ?? null,\n    majLe: derniere.derniere_date ?? null, // date de la dernière cotation (AAAA-MM-JJ)\n    exemple: false,\n  },\n}];"
+      }
+    },
+    {
+      "id": "863790a6-1f95-4d34-8712-6795219882bc",
+      "name": "Répondre au site",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "public, max-age=300"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "9d0e6bbb-1e5e-465f-9329-af043bfdf62c",
+      "name": "Note saisie",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -200
+      ],
+      "parameters": {
+        "width": 1680,
+        "height": 180,
+        "color": 4,
+        "content": "## ① Saisie hebdomadaire\nFormulaire (protégé par mot de passe) → contrôle des prix → enregistrement dans Supabase (`ie.cotations`) → l'IA OpenRouter rédige le commentaire de la semaine (`ie.syntheses`).\nCredentials à choisir : **Supabase IE** (Postgres) sur les 3 nœuds Postgres, **OpenRouter** sur le modèle, **Formulaire IE** (Basic Auth) sur le formulaire."
+      }
+    },
+    {
+      "id": "3ad4ee22-7d24-443c-9954-9d3647ba2ed4",
+      "name": "Note API",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        300
+      ],
+      "parameters": {
+        "width": 900,
+        "height": 140,
+        "color": 5,
+        "content": "## ② API lue par le site\nGET `/webhook/barometre-mangue` → série des 12 dernières semaines + commentaire IA, au format du baromètre du site."
+      }
+    }
+  ],
+  "connections": {
+    "Formulaire cotation": {
+      "main": [
+        [
+          {
+            "node": "Préparer la cotation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer la cotation": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer dans Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer dans Supabase": {
+      "main": [
+        [
+          {
+            "node": "Lire la série",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire la série": {
+      "main": [
+        [
+          {
+            "node": "Préparer le prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer le prompt": {
+      "main": [
+        [
+          {
+            "node": "Rédiger le commentaire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rédiger le commentaire": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer le commentaire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API baromètre (GET)": {
+      "main": [
+        [
+          {
+            "node": "Lire la série (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire la série (API)": {
+      "main": [
+        [
+          {
+            "node": "Format du site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format du site": {
+      "main": [
+        [
+          {
+            "node": "Répondre au site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter (modèle gratuit)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rédiger le commentaire",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Abidjan"
+  },
+  "pinData": {}
+}
