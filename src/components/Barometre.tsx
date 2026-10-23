@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ChartSpline, Sparkles, Table2 } from 'lucide-react'
+import { ChartSpline, Table2 } from 'lucide-react'
 import EnTeteSection from './EnTeteSection'
+import LectureSemaine from './LectureSemaine'
 import Reveal from './Reveal'
 import StatutDonnees from './StatutDonnees'
 import { getProduits, getSerieExemple, getSeriePrix, variation } from '../services/marketData'
@@ -200,27 +201,12 @@ export default function Barometre() {
               </div>
             )}
 
-            {serie?.commentaire && (
-              <motion.figure
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-6 flex gap-3 rounded-2xl border border-line bg-surface-2/60 p-4"
-              >
-                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
-                  <Sparkles size={18} />
-                </span>
-                <div className="min-w-0">
-                  <figcaption className="text-xs font-semibold uppercase tracking-wider text-muted">
-                    Lecture de la semaine
-                  </figcaption>
-                  <blockquote className="mt-1 text-pretty">{serie.commentaire}</blockquote>
-                  <p className="mt-1 text-xs text-muted">Rédigé par IA à partir des seuls chiffres ci-dessus.</p>
-                </div>
-              </motion.figure>
-            )}
+            {serie && <LectureSemaine serie={serie} />}
             {serie && (
               <p className="mt-6 text-xs text-muted">
                 Source : {serie.source} · Marché : {serie.marche}.
+                {!!serie.decalageSemaines &&
+                  ` Prix publics décalés de ${serie.decalageSemaines} semaines : les abonnés reçoivent la semaine en cours.`}
               </p>
             )}
           </div>

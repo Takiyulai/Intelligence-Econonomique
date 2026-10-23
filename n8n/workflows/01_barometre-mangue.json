@@ -2,7 +2,7 @@
   "name": "01 Baromètre mangue",
   "nodes": [
     {
-      "id": "7656528a-a5e4-460a-a77b-f8f813935a81",
+      "id": "863284df-842c-4fa5-a5be-6138a3cf8b3a",
       "name": "Formulaire cotation",
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
@@ -10,7 +10,7 @@
         0,
         0
       ],
-      "webhookId": "b77fe7ad-8cc8-4be9-9997-bfe504c4a9fa",
+      "webhookId": "1bf91909-3775-4c4e-98d7-c4daf2a1b867",
       "parameters": {
         "authentication": "basicAuth",
         "formTitle": "Nouvelle cotation mangue",
@@ -87,8 +87,7 @@
             },
             {
               "fieldLabel": "Source",
-              "placeholder": "RNM FranceAgriMer",
-              "requiredField": true
+              "placeholder": "Laisser vide = RNM FranceAgriMer"
             },
             {
               "fieldLabel": "Lien de la source",
@@ -108,7 +107,7 @@
       }
     },
     {
-      "id": "02650bb5-2306-4dad-81b1-1d5b7a00840f",
+      "id": "d031f31e-f640-4bb1-9f0c-ab9aba06eb92",
       "name": "Préparer la cotation",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -121,7 +120,7 @@
       }
     },
     {
-      "id": "591dfb63-05f4-41d3-95a4-5690b3378723",
+      "id": "73fa25ee-5f31-42c0-a1da-06f3aeb37c30",
       "name": "Enregistrer dans Supabase",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -138,7 +137,7 @@
       }
     },
     {
-      "id": "3d7bb8c9-adba-4817-9e54-571e1d541e6c",
+      "id": "ff3ff4d5-951c-4e76-9df5-601c6249b7da",
       "name": "Lire la série",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -154,7 +153,7 @@
       }
     },
     {
-      "id": "215623d6-7c1d-4b17-9728-76d5def54581",
+      "id": "218d84d4-5555-495e-b4e3-1b456fd475e2",
       "name": "Préparer le prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -163,11 +162,11 @@
         0
       ],
       "parameters": {
-        "jsCode": "// Rassemble la série hebdomadaire en un seul texte pour l'IA.\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nif (!lignes.length) throw new Error('Aucune cotation en base.');\nconst tableau = lignes\n  .map((r) => `${r.semaine} (${r.cle}) : ${Number(r.prix).toFixed(2)} €/kg, ${r.nb_cotations} cotation(s)`)\n  .join('\\n');\nreturn [{ json: { cle_derniere: lignes.at(-1).cle, donnees: tableau } }];"
+        "jsCode": "// Rassemble la série hebdomadaire en un seul texte pour l'IA.\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nif (!lignes.length) throw new Error('Aucune cotation en base.');\nconst tableau = lignes\n  .map((r) => `${r.semaine} (${r.cle}) : ${Number(r.prix).toFixed(2)} €/kg, ${r.nb_cotations} cotation(s)`)\n  .join('\\n');\nconst d = lignes.at(-1);\nconst p = lignes.at(-2);\nreturn [{ json: {\n  cle_derniere: d.cle,\n  donnees: tableau,\n  semaine: d.semaine,\n  prix: Number(d.prix),\n  prix_precedent: p ? Number(p.prix) : null,\n} }];"
       }
     },
     {
-      "id": "921857e7-c8f8-4560-8609-ea4821ed1dab",
+      "id": "8c1cdd23-28d3-4b70-9691-70f729d2d416",
       "name": "Rédiger le commentaire",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
@@ -178,13 +177,14 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
       "parameters": {
         "promptType": "define",
         "text": "=Tu es analyste de marché pour des exportateurs de mangues d'Afrique de l'Ouest (Côte d'Ivoire, Sénégal) qui vendent en France.\n\nVoici le prix moyen grossiste de la mangue, semaine par semaine (le plus récent en dernier) :\n{{ $json.donnees }}\n\nÉcris un commentaire de 3 phrases maximum, en français simple, pour un exportateur :\n1. l'évolution de la dernière semaine par rapport à la précédente (en %) ;\n2. le niveau actuel par rapport à la moyenne de la période ;\n3. un conseil prudent pour la prochaine expédition.\n\nRègles : n'utilise que les chiffres ci-dessus, n'invente aucune cause ni aucun chiffre. S'il n'y a qu'une semaine, dis simplement que la tendance n'est pas encore mesurable. Pas de titre, pas de liste, pas de mise en forme."
       }
     },
     {
-      "id": "2f08d2ef-4bf4-4521-9000-670362fb1e1f",
+      "id": "50976b6e-1a42-4ee5-9045-103b532c8381",
       "name": "OpenRouter (modèle gratuit)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
       "typeVersion": 1,
@@ -201,24 +201,37 @@
       }
     },
     {
-      "id": "45511bc3-133f-41a3-ac02-44ac8daf3a47",
-      "name": "Enregistrer le commentaire",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
+      "id": "4b001584-1fe3-40a2-9358-841088df2c3c",
+      "name": "Finaliser le commentaire",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1420,
         0
       ],
       "parameters": {
+        "jsCode": "// Garde le texte de l'IA ; s'il est vide (modèle gratuit indisponible ou réponse vide),\n// écrit un commentaire simple calculé à partir des seuls chiffres, sans IA.\nconst p = $('Préparer le prompt').first().json;\nconst texteIA = String($json.text ?? '')\n  .replace(/<think>[\\s\\S]*?<\\/think>/g, '')\n  .trim();\nif (texteIA) return [{ json: { cle: p.cle_derniere, texte: texteIA, modele: 'openrouter/free' } }];\n\nconst fmt = (n) => n.toFixed(2).replace('.', ',');\nlet texte = `Semaine ${p.semaine.slice(1)} : ${fmt(p.prix)} €/kg en moyenne.`;\nif (p.prix_precedent) {\n  const v = ((p.prix - p.prix_precedent) / p.prix_precedent) * 100;\n  texte += v === 0\n    ? ` Prix stable par rapport à la semaine précédente.`\n    : ` ${v > 0 ? 'Hausse' : 'Baisse'} de ${Math.abs(v).toFixed(1).replace('.', ',')} % par rapport à la semaine précédente (${fmt(p.prix_precedent)} €/kg).`;\n} else {\n  texte += \" C'est la première semaine suivie : la tendance n'est pas encore mesurable.\";\n}\nreturn [{ json: { cle: p.cle_derniere, texte, modele: 'calcul automatique (IA indisponible)' } }];"
+      }
+    },
+    {
+      "id": "6f190591-1360-4d8b-af57-ab2cfdbf4897",
+      "name": "Enregistrer le commentaire",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1640,
+        0
+      ],
+      "parameters": {
         "operation": "executeQuery",
-        "query": "insert into ie.syntheses (produit, semaine, texte, modele)\nvalues ('mangue', $1, $2, 'openrouter/free')\non conflict (produit, semaine)\ndo update set texte = excluded.texte, modele = excluded.modele, cree_le = now();",
+        "query": "insert into ie.syntheses (produit, semaine, texte, modele)\nvalues ('mangue', $1, $2, $3)\non conflict (produit, semaine)\ndo update set texte = excluded.texte, modele = excluded.modele, cree_le = now();",
         "options": {
-          "queryReplacement": "={{ [ $('Préparer le prompt').item.json.cle_derniere, $json.text.trim() ] }}"
+          "queryReplacement": "={{ [ $json.cle, $json.texte, $json.modele ] }}"
         }
       }
     },
     {
-      "id": "5a371191-12b7-410c-a526-e1dc9daa2cef",
+      "id": "e9f2c097-6cd2-453c-8c0f-83fc9f9cf80c",
       "name": "API baromètre (GET)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -226,7 +239,7 @@
         0,
         460
       ],
-      "webhookId": "d18cb401-2ac6-48ec-b6a5-1d51d838a878",
+      "webhookId": "490d9ef8-440e-48ca-a418-384adb6ebd8b",
       "parameters": {
         "httpMethod": "GET",
         "path": "barometre-mangue",
@@ -235,7 +248,7 @@
       }
     },
     {
-      "id": "5ffd2565-1958-4ac2-ae8f-25bf88b68ba2",
+      "id": "aab64711-30f0-4990-9773-b68883ec651c",
       "name": "Lire la série (API)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -246,12 +259,12 @@
       "alwaysOutputData": true,
       "parameters": {
         "operation": "executeQuery",
-        "query": "select s.cle, s.semaine, s.prix, s.nb_cotations, s.derniere_date,\n  (select texte from ie.syntheses y where y.produit = 'mangue' order by y.semaine desc limit 1) as commentaire,\n  (select string_agg(distinct marche, ', ') from ie.cotations where produit = 'mangue') as marches\nfrom (\n  select to_char(date_cotation, 'IYYY-IW') as cle,\n         'S' || to_char(date_cotation, 'IW') as semaine,\n         round(avg(prix_moyen), 2)::float8 as prix,\n         count(*)::int as nb_cotations,\n         max(date_cotation)::text as derniere_date\n  from ie.cotations\n  where produit = 'mangue'\n  group by 1, 2\n  order by 1 desc\n  limit 12\n) s\norder by s.cle;",
+        "query": "select s.cle, s.semaine, s.prix, s.nb_cotations, s.derniere_date,\n  (select json_agg(json_build_object('cle', y.semaine, 'texte', y.texte)) from ie.syntheses y where y.produit = 'mangue') as syntheses,\n  (select string_agg(distinct marche, ', ') from ie.cotations where produit = 'mangue') as marches\nfrom (\n  select to_char(date_cotation, 'IYYY-IW') as cle,\n         'S' || to_char(date_cotation, 'IW') as semaine,\n         round(avg(prix_moyen), 2)::float8 as prix,\n         count(*)::int as nb_cotations,\n         max(date_cotation)::text as derniere_date\n  from ie.cotations\n  where produit = 'mangue'\n  group by 1, 2\n  order by 1 desc\n  limit 16\n) s\norder by s.cle;",
         "options": {}
       }
     },
     {
-      "id": "61e7b6e5-3d0c-4337-b289-7429408057a3",
+      "id": "28d396b2-c2fe-4734-87fa-de52cdad98b3",
       "name": "Format du site",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -260,11 +273,11 @@
         460
       ],
       "parameters": {
-        "jsCode": "// Met la série au format attendu par le site (src/services/marketData.ts).\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nconst derniere = lignes.at(-1) ?? {};\nreturn [{\n  json: {\n    produit: 'mangue',\n    marche: derniere.marches || 'Rungis',\n    unite: '€/kg',\n    source: 'RNM FranceAgriMer, cotations grossistes saisies chaque semaine',\n    points: lignes.map((r) => ({ semaine: r.semaine, prix: Number(r.prix) })),\n    commentaire: derniere.commentaire ?? null,\n    majLe: derniere.derniere_date ?? null, // date de la dernière cotation (AAAA-MM-JJ)\n    exemple: false,\n  },\n}];"
+        "jsCode": "// Met la série PUBLIQUE au format attendu par le site (src/services/marketData.ts).\n// Le public voit les prix avec un décalage et seulement la 1re phrase du commentaire :\n// la semaine en cours et le commentaire complet sont réservés aux abonnés (workflow 02).\nconst DECALAGE_SEMAINES = 4; // 0 = tout publier (semaine en cours comprise)\n\nconst toutes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nconst lignes = toutes.slice(0, Math.max(toutes.length - DECALAGE_SEMAINES, 0)).slice(-12);\nconst derniere = lignes.at(-1) ?? {};\nconst syntheses = toutes[0]?.syntheses ?? [];\n\n// Commentaire de la dernière semaine PUBLIQUE (pas celui de la semaine en cours), réduit à sa 1re phrase.\nconst synthese = syntheses\n  .filter((y) => derniere.cle && y.cle <= derniere.cle)\n  .sort((a, b) => (a.cle < b.cle ? 1 : -1))[0];\nconst texte = String(synthese?.texte ?? '').trim();\nconst extrait = texte ? (texte.match(/^.*?[.!?](?=\\s|$)/s)?.[0] ?? texte.slice(0, 160)) : null;\n\nreturn [{\n  json: {\n    produit: 'mangue',\n    marche: toutes.at(-1)?.marches || 'Rungis',\n    unite: '€/kg',\n    source: 'RNM FranceAgriMer, cotations grossistes saisies chaque semaine',\n    points: lignes.map((r) => ({ semaine: r.semaine, prix: Number(r.prix) })),\n    extrait,\n    decalageSemaines: DECALAGE_SEMAINES,\n    majLe: derniere.derniere_date ?? null, // date de la dernière cotation publiée (AAAA-MM-JJ)\n    exemple: false,\n  },\n}];"
       }
     },
     {
-      "id": "863790a6-1f95-4d34-8712-6795219882bc",
+      "id": "09d6b986-a7d5-4858-9cf9-f001d0643acb",
       "name": "Répondre au site",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
@@ -292,7 +305,7 @@
       }
     },
     {
-      "id": "9d0e6bbb-1e5e-465f-9329-af043bfdf62c",
+      "id": "e501dd61-7bc1-4806-a49b-db7c76f27aee",
       "name": "Note saisie",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
@@ -301,14 +314,14 @@
         -200
       ],
       "parameters": {
-        "width": 1680,
+        "width": 1900,
         "height": 180,
         "color": 4,
         "content": "## ① Saisie hebdomadaire\nFormulaire (protégé par mot de passe) → contrôle des prix → enregistrement dans Supabase (`ie.cotations`) → l'IA OpenRouter rédige le commentaire de la semaine (`ie.syntheses`).\nCredentials à choisir : **Supabase IE** (Postgres) sur les 3 nœuds Postgres, **OpenRouter** sur le modèle, **Formulaire IE** (Basic Auth) sur le formulaire."
       }
     },
     {
-      "id": "3ad4ee22-7d24-443c-9954-9d3647ba2ed4",
+      "id": "5fa06681-8ae1-4576-a7f9-c746bba563de",
       "name": "Note API",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
@@ -320,7 +333,7 @@
         "width": 900,
         "height": 140,
         "color": 5,
-        "content": "## ② API lue par le site\nGET `/webhook/barometre-mangue` → série des 12 dernières semaines + commentaire IA, au format du baromètre du site."
+        "content": "## ② API lue par le site (publique)\nGET `/webhook/barometre-mangue` → prix décalés de 4 semaines (réglage `DECALAGE_SEMAINES` dans *Format du site*) + 1re phrase du commentaire. La semaine en cours et le commentaire complet partent aux abonnés (workflow 02)."
       }
     }
   ],
@@ -381,6 +394,17 @@
       ]
     },
     "Rédiger le commentaire": {
+      "main": [
+        [
+          {
+            "node": "Finaliser le commentaire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finaliser le commentaire": {
       "main": [
         [
           {

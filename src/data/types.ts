@@ -23,6 +23,10 @@ export interface SeriePrix {
   exemple: boolean
   /** Commentaire de la semaine rédigé par l'IA à partir des chiffres (série réelle uniquement) */
   commentaire?: string | null
+  /** Début du commentaire visible par tous ; le texte complet est réservé aux abonnés */
+  extrait?: string | null
+  /** Nombre de semaines de décalage des prix publics (0 ou absent = semaine en cours) */
+  decalageSemaines?: number
   /** Date de la dernière cotation, AAAA-MM-JJ (série réelle uniquement) */
   majLe?: string | null
 }

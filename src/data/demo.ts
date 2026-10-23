@@ -9,19 +9,20 @@ export const produits: Produit[] = [
 
 const semaines = ['S32', 'S33', 'S34', 'S35', 'S36', 'S37', 'S38', 'S39', 'S40', 'S41']
 
-const serie = (produit: SeriePrix['produit'], valeurs: number[]): SeriePrix => ({
+const serie = (produit: SeriePrix['produit'], valeurs: number[], extrait: string): SeriePrix => ({
   produit,
   marche: 'Rungis (exemple)',
   unite: '€/kg',
   points: semaines.map((semaine, i) => ({ semaine, prix: valeurs[i] })),
   source: 'Données fictives de démonstration',
   exemple: true,
+  extrait,
 })
 
 export const seriesPrix: SeriePrix[] = [
-  serie('mangue', [2.1, 2.2, 2.15, 2.3, 2.45, 2.4, 2.25, 2.2, 2.35, 2.5]),
-  serie('piment', [3.4, 3.3, 3.5, 3.6, 3.55, 3.7, 3.9, 3.8, 3.75, 3.95]),
-  serie('ananas', [1.6, 1.65, 1.62, 1.58, 1.55, 1.6, 1.7, 1.68, 1.72, 1.7]),
+  serie('mangue', [2.1, 2.2, 2.15, 2.3, 2.45, 2.4, 2.25, 2.2, 2.35, 2.5], 'Le prix moyen de la mangue gagne 6,4 % sur la semaine, à 2,50 €/kg.'),
+  serie('piment', [3.4, 3.3, 3.5, 3.6, 3.55, 3.7, 3.9, 3.8, 3.75, 3.95], 'Le piment frais remonte de 5,3 % sur la semaine, à 3,95 €/kg.'),
+  serie('ananas', [1.6, 1.65, 1.62, 1.58, 1.55, 1.6, 1.7, 1.68, 1.72, 1.7], "L'ananas recule légèrement, à 1,70 €/kg (-1,2 % sur la semaine)."),
 ]
 
 export const alertes: AlerteNorme[] = [

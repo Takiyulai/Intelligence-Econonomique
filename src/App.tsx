@@ -6,6 +6,7 @@ import Piliers from './components/Piliers'
 import Methode from './components/Methode'
 import Alertes from './components/Alertes'
 import Sources from './components/Sources'
+import VotreVendredi from './components/VotreVendredi'
 import Offres from './components/Offres'
 import AppelAction from './components/AppelAction'
 import Footer from './components/Footer'
@@ -32,6 +33,7 @@ export default function App() {
         </Suspense>
         <Alertes />
         <Sources />
+        <VotreVendredi />
         <Offres />
         <AppelAction />
       </main>

@@ -33,6 +33,8 @@ async function lireSerieN8n(): Promise<SeriePrix | undefined> {
       source: typeof d.source === 'string' ? d.source : 'RNM FranceAgriMer',
       exemple: false,
       commentaire: typeof d.commentaire === 'string' ? d.commentaire : null,
+      extrait: typeof d.extrait === 'string' ? d.extrait : null,
+      decalageSemaines: Number.isFinite(d.decalageSemaines) ? d.decalageSemaines : 0,
       majLe: typeof d.majLe === 'string' ? d.majLe : null,
     }
   } catch {
@@ -77,4 +79,11 @@ export function dateCourte(iso: string): string {
   return Number.isNaN(d.getTime())
     ? iso
     : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/** Texte public de la « Lecture de la semaine » : l'extrait envoyé par n8n, sinon la première phrase du commentaire. */
+export function extraitPublic(serie: SeriePrix): string | null {
+  if (serie.extrait) return serie.extrait
+  if (!serie.commentaire) return null
+  return serie.commentaire.match(/^.*?[.!?](?=\s|$)/s)?.[0] ?? serie.commentaire
 }

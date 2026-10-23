@@ -90,7 +90,7 @@ export default function Hero() {
       </motion.div>
 
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 sm:gap-16 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
-        {/* Bloc texte : titre, sous-titre et CTA partagent la même largeur et sont justifiés. */}
+        {/* Bloc texte : titre et CTA partagent la même largeur ; le sous-titre est centré. */}
         <motion.div style={{ y: yTexte, opacity: opacite }} className="mx-auto w-full max-w-xl md:max-w-2xl lg:mx-0 lg:max-w-xl">
           <motion.p
             initial={{ opacity: 0, y: 10 }}
@@ -112,7 +112,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.7 }}
-            className="mt-6 text-base text-muted text-justify hyphens-auto sm:text-lg"
+            className="mt-6 text-center text-base text-muted text-balance sm:text-lg"
           >
             Prix des marchés européens, tendances d'importation et alertes sur les normes, traduits en décisions
             simples pour les exportateurs, coopératives et PME d'Afrique de l'Ouest.
@@ -169,7 +169,11 @@ export default function Hero() {
               <Tendance key={String(mangue.exemple)} serie={mangue} />
               <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
                 <StatutDonnees serie={mangue} />
-                <span className="text-xs text-muted">Mise à jour chaque vendredi</span>
+                <span className="text-xs text-muted">
+                  {mangue.decalageSemaines
+                    ? `Prix public décalé de ${mangue.decalageSemaines} semaines`
+                    : 'Mise à jour chaque vendredi'}
+                </span>
               </div>
             </div>
           </TiltCard>

@@ -9,6 +9,7 @@ const liens = [
   { href: '#methode', label: 'Méthode' },
   { href: '#barometre', label: 'Baromètre' },
   { href: '#alertes', label: 'Alertes' },
+  { href: '#abonnes', label: 'Abonnés' },
   { href: '#offres', label: 'Offres' },
 ]
 

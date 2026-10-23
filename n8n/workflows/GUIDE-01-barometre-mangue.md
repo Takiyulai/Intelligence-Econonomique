@@ -69,15 +69,19 @@ de chaque nœud sont dans le JSON (ouvrez-le dans un éditeur de texte).
 Ouvrir dans le navigateur `https://n8n-mmc3.onrender.com/webhook/barometre-mangue`. **Résultat attendu** (avec les deux saisies ci-dessus) :
 ```json
 {"produit":"mangue","marche":"Rungis","unite":"€/kg","source":"RNM FranceAgriMer, cotations grossistes saisies chaque semaine",
- "points":[{"semaine":"S40","prix":2.3},{"semaine":"S41","prix":2.4}],
- "commentaire":"…3 phrases rédigées par l'IA…","majLe":"2026-10-09","exemple":false}
+ "points":[{"semaine":"S36","prix":2.3},{"semaine":"S37","prix":2.4}],
+ "extrait":"…1re phrase du commentaire IA…","decalageSemaines":4,"majLe":"2026-09-11","exemple":false}
 ```
+L'API est **publique** : elle ne publie que les semaines d'il y a 4 semaines et plus, avec la 1re phrase du commentaire de la
+dernière semaine publiée. La semaine en cours et le commentaire complet partent aux abonnés (workflow 02).
+Pour tout publier pendant un test, mettre `DECALAGE_SEMAINES = 0` en haut du nœud *Format du site*.
+Tant qu'il y a moins de 5 semaines de cotations, `points` est vide et le site reste sur les données d'exemple.
 
 ## Étape 6 : brancher le site
 1. À la racine du projet (dossier IT), copier `.env.example` en **`.env.local`** (il contient déjà la bonne adresse).
 2. `npm run dev` puis ouvrir http://localhost:5173.
 3. **Résultat attendu** : dans le baromètre (onglet Mangue) et dans la carte du haut de page, le badge devient
-   **« Cotations réelles · 9 oct. 2026 »**, la courbe montre vos semaines et le bloc « Lecture de la semaine » affiche le commentaire IA.
+   **« Cotations réelles · 9 oct. 2026 »**, la courbe montre vos semaines publiques (décalées de 4 semaines) et la carte « Lecture de la semaine » affiche la 1re phrase du commentaire IA, la suite floutée.
    Sans `.env.local`, ou si n8n ne répond pas en 10 s, le site revient tout seul aux données d'exemple.
 
 ## En cas de problème
