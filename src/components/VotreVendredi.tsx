@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { AnimatePresence, motion, useInView, useReducedMotion } from 'motion/react'
-import { BellRing, CheckCheck, Clock, Radar, Sparkles, Smartphone } from 'lucide-react'
+import { BellRing, CheckCheck, Clock, Inbox, Radar, Sparkles, Smartphone } from 'lucide-react'
 import EnTeteSection from './EnTeteSection'
 import Reveal from './Reveal'
 import { getSerieExemple, variation } from '../services/marketData'
@@ -30,23 +30,31 @@ const etapes = [
 ]
 
 const DUREE_ETAPE_MS = 2600
+// Scénario joué en boucle : 3 étapes abonné, pause sur la réception, puis la vue « visiteur à la découverte ».
+const SCENES: { mode: Mode; etape: number; duree: number }[] = [
+  { mode: 'abonne', etape: 0, duree: DUREE_ETAPE_MS },
+  { mode: 'abonne', etape: 1, duree: DUREE_ETAPE_MS },
+  { mode: 'abonne', etape: 2, duree: 5200 },
+  { mode: 'gratuit', etape: 2, duree: 4200 },
+]
 const fmt = (n: number) => n.toFixed(2).replace('.', ',')
 
-/** Section qui montre, en trois temps animés, ce que reçoit un abonné et ce que voit un visiteur gratuit. */
+/** Section qui montre, en trois temps animés, ce que reçoit un abonné et ce que voit un visiteur à la découverte. */
 export default function VotreVendredi() {
   const ref = useRef<HTMLDivElement>(null)
-  const visible = useInView(ref, { margin: '-120px' })
+  const visible = useInView(ref, { amount: 0.25 })
   const reduit = useReducedMotion()
-  const [etape, setEtape] = useState(0)
-  const [mode, setMode] = useState<Mode>('abonne')
+  const [scene, setScene] = useState(0)
 
-  // Les étapes défilent seules tant que la section est à l'écran ; la dernière reste affichée un peu plus longtemps.
+  // Le scénario se joue tout seul dès que la section est à l'écran, sans clic (y compris avec « animations réduites »,
+  // où seuls les changements d'état restent, sans mouvement). Les boutons permettent juste de sauter à une vue.
   useEffect(() => {
-    if (!visible || reduit) return
-    const t = setTimeout(() => setEtape((e) => (e + 1) % (etapes.length + 1)), DUREE_ETAPE_MS)
+    if (!visible) return
+    const t = setTimeout(() => setScene((n) => (n + 1) % SCENES.length), SCENES[scene].duree)
     return () => clearTimeout(t)
-  }, [visible, reduit, etape])
-  const active = reduit ? etapes.length - 1 : Math.min(etape, etapes.length - 1)
+  }, [visible, scene])
+  const { mode, etape: active } = SCENES[scene]
+  const setMode = (m: Mode) => setScene(m === 'abonne' ? 0 : SCENES.length - 1)
 
   return (
     <section id="abonnes" className="scroll-mt-20 py-24">
@@ -56,7 +64,7 @@ export default function VotreVendredi() {
           titre="Votre vendredi, sans lever le petit doigt"
           texte="Nous collectons, analysons et vous envoyons l'essentiel. Vous n'avez qu'à lire et décider."
         />
-        <div ref={ref} className="grid items-center gap-12 lg:grid-cols-[1fr_minmax(0,380px)] lg:gap-16">
+        <div ref={ref} className="grid items-center gap-12 lg:grid-cols-[1fr_minmax(0,460px)] lg:gap-16">
           <ol className="relative space-y-4">
             {etapes.map((e, i) => {
               const faite = i < active
@@ -85,11 +93,11 @@ export default function VotreVendredi() {
                     {/* Barre de progression de l'étape en cours */}
                     {enCours && !reduit && (
                       <motion.span
-                        key={`${i}-${etape}`}
+                        key={`${i}-${scene}`}
                         aria-hidden
                         initial={{ scaleX: 0 }}
                         animate={{ scaleX: 1 }}
-                        transition={{ duration: DUREE_ETAPE_MS / 1000, ease: 'linear' }}
+                        transition={{ duration: SCENES[scene].duree / 1000, ease: 'linear' }}
                         className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-gradient-to-r from-brand to-accent"
                       />
                     )}
@@ -99,12 +107,12 @@ export default function VotreVendredi() {
             })}
           </ol>
 
-          <Reveal delai={0.15} className="mx-auto w-full max-w-[380px]">
+          <Reveal delai={0.15} className="mx-auto w-full max-w-[460px]">
             <div role="group" aria-label="Point de vue" className="mx-auto mb-5 flex w-fit rounded-full bg-surface-2 p-1">
               {(
                 [
                   ['abonne', 'Abonné Premium'],
-                  ['gratuit', 'Visiteur gratuit'],
+                  ['gratuit', 'Visiteur à la découverte (0 €)'],
                 ] as const
               ).map(([cle, label]) => (
                 <button
@@ -112,7 +120,7 @@ export default function VotreVendredi() {
                   type="button"
                   aria-pressed={mode === cle}
                   onClick={() => setMode(cle)}
-                  className={`relative rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                  className={`relative whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold transition-colors sm:px-4 sm:text-sm ${
                     mode === cle ? 'text-ink' : 'text-muted hover:text-ink'
                   }`}
                 >
@@ -127,7 +135,12 @@ export default function VotreVendredi() {
                 </button>
               ))}
             </div>
-            <Telephone mode={mode} etape={active} />
+            <div className="relative">
+              <div className="lg:ml-auto lg:w-[300px]">
+                <Telephone mode={mode} etape={active} />
+              </div>
+              <EmailRecu mode={mode} etape={active} />
+            </div>
             <p className="mt-4 text-center text-xs text-muted">Illustration avec des données d'exemple.</p>
           </Reveal>
         </div>
@@ -262,6 +275,96 @@ function Bulle({
           {lu && <CheckCheck size={14} className="text-[#53bdeb]" />}
         </span>
       )}
+    </motion.div>
+  )
+}
+
+/** Aperçu du même bulletin reçu par e-mail, posé à côté du téléphone. */
+function EmailRecu({ mode, etape }: { mode: Mode; etape: number }) {
+  const serie = getSerieExemple('mangue')!
+  const dernier = serie.points.at(-1)!
+  const v = variation(serie)
+  const recu = mode === 'abonne' && etape === etapes.length - 1
+
+  return (
+    <motion.div
+      animate={{ y: [0, -6, 0] }}
+      transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+      className="relative z-20 mx-auto mt-6 w-full max-w-[320px] lg:absolute lg:bottom-14 lg:-left-12 lg:mt-0 lg:w-[220px]"
+    >
+      <div className="overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-2xl shadow-black/15">
+        <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-3 py-2">
+          <span className="flex gap-1">
+            <span className="size-2 rounded-full bg-[#f87171]" />
+            <span className="size-2 rounded-full bg-[#fbbf24]" />
+            <span className="size-2 rounded-full bg-[#4ade80]" />
+          </span>
+          <span className="flex items-center gap-1 text-[11px] font-semibold text-muted">
+            <Inbox size={12} /> Boîte de réception
+          </span>
+          <AnimatePresence>
+            {recu && (
+              <motion.span
+                key="nouveau"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1, transition: { delay: 0.9 } }}
+                exit={{ scale: 0 }}
+                className="ml-auto rounded-full bg-accent px-1.5 text-[10px] font-bold text-white"
+              >
+                1
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </div>
+        <AnimatePresence mode="wait">
+          {recu ? (
+            <motion.div
+              key="mail"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0, transition: { delay: 0.9, duration: 0.4, ease: [0.22, 1, 0.36, 1] } }}
+              exit={{ opacity: 0, transition: { duration: 0.2 } }}
+              className="p-3"
+            >
+              <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className="font-bold">Baromètre IE</span>
+                <span className="text-muted">08:00</span>
+              </div>
+              <p className="mt-0.5 text-xs font-semibold leading-snug">
+                Baromètre mangue {dernier.semaine} : {fmt(dernier.prix)} €/kg ({v >= 0 ? '+' : ''}
+                {v.toFixed(1).replace('.', ',')} %)
+              </p>
+              {/* Miniature du bulletin e-mail */}
+              <div className="mt-2 overflow-hidden rounded-lg border border-line">
+                <div className="bg-[#146c43] px-2.5 py-1.5 text-[10px] font-semibold text-white">
+                  Mangue · prix grossiste · Rungis
+                </div>
+                <div className="space-y-1.5 p-2.5">
+                  <p className="font-display text-lg leading-none font-bold">
+                    {fmt(dernier.prix)} <span className="text-[10px] font-medium text-muted">€/kg</span>
+                  </p>
+                  <div className="rounded border-l-2 border-accent bg-accent-soft px-2 py-1.5">
+                    <p className="text-[9px] font-bold uppercase text-muted">Lecture de la semaine</p>
+                    <span className="mt-1 block h-1.5 w-full rounded bg-ink/15" />
+                    <span className="mt-1 block h-1.5 w-4/5 rounded bg-ink/15" />
+                  </div>
+                  <span className="block h-1.5 w-3/5 rounded bg-line" />
+                  <span className="block h-1.5 w-2/5 rounded bg-line" />
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.p
+              key="vide"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-3 py-6 text-center text-xs text-muted"
+            >
+              {mode === 'gratuit' ? 'Aucun bulletin : réservé aux abonnés' : 'Le bulletin arrive à 8 h…'}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </div>
     </motion.div>
   )
 }
