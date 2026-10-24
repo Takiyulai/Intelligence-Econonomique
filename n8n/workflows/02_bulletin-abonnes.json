@@ -53,13 +53,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Construit le bulletin COMPLET de la semaine (réservé aux abonnés) : e-mail HTML + texte WhatsApp.\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nif (!lignes.length) throw new Error('Aucune cotation en base : rien à envoyer.');\n\nconst d = lignes.at(-1);\nconst p = lignes.at(-2);\nconst fmt = (n) => Number(n).toFixed(2).replace('.', ',');\nconst v = p ? ((d.prix - p.prix) / p.prix) * 100 : null;\nconst vTexte = v === null ? 'première semaine suivie' : `${v >= 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')} % sur une semaine`;\nconst marche = d.marches || 'Rungis';\n// Le commentaire n'est utilisé que s'il porte sur la dernière semaine cotée.\nconst commentaire = d.cle_commentaire === d.cle ? String(d.commentaire ?? '').trim() : '';\nconst echapper = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst sujet = `Baromètre mangue ${d.semaine} : ${fmt(d.prix)} €/kg (${vTexte})`;\n\nconst tableau = lignes.slice(-6).reverse().map((r, i, inv) => {\n  const prec = inv[i + 1];\n  const e = prec ? ((r.prix - prec.prix) / prec.prix) * 100 : null;\n  return `<tr><td style=\"padding:6px 10px;border-top:1px solid #dfe4dc\">${r.semaine}</td>`\n    + `<td style=\"padding:6px 10px;border-top:1px solid #dfe4dc;text-align:right\">${fmt(r.prix)} €/kg</td>`\n    + `<td style=\"padding:6px 10px;border-top:1px solid #dfe4dc;text-align:right;color:#5b6a61\">${e === null ? '—' : `${e >= 0 ? '+' : ''}${e.toFixed(1).replace('.', ',')} %`}</td></tr>`;\n}).join('');\n\nconst html = `<!doctype html><html lang=\"fr\"><body style=\"margin:0;background:#f7f8f5;font-family:Arial,Helvetica,sans-serif;color:#0f1a14\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"padding:24px 12px\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:560px;background:#ffffff;border:1px solid #dfe4dc;border-radius:16px\">\n<tr><td style=\"background:#146c43;color:#ffffff;padding:18px 24px;border-radius:16px 16px 0 0\">\n  <div style=\"font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.8\">Baromètre abonnés · semaine ${d.semaine.slice(1)}</div>\n  <div style=\"font-size:20px;font-weight:bold;margin-top:4px\">Mangue · prix grossiste · ${echapper(marche)}</div>\n</td></tr>\n<tr><td style=\"padding:24px\">\n  <div style=\"font-size:34px;font-weight:bold\">${fmt(d.prix)} <span style=\"font-size:16px;color:#5b6a61\">€/kg</span></div>\n  <div style=\"margin-top:4px;font-weight:bold;color:${v !== null && v < 0 ? '#c2410c' : '#146c43'}\">${vTexte}</div>\n  ${commentaire ? `<div style=\"margin-top:20px;padding:16px;border-left:4px solid #e8900c;background:#fdecd0;border-radius:8px\">\n    <div style=\"font-size:12px;font-weight:bold;text-transform:uppercase;color:#5b6a61\">Lecture de la semaine</div>\n    <div style=\"margin-top:6px;font-size:16px;line-height:1.5\">${echapper(commentaire)}</div></div>` : ''}\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:20px;font-size:14px\">\n    <tr><th align=\"left\" style=\"padding:6px 10px;color:#5b6a61;font-weight:normal\">Semaine</th><th align=\"right\" style=\"padding:6px 10px;color:#5b6a61;font-weight:normal\">Prix moyen</th><th align=\"right\" style=\"padding:6px 10px;color:#5b6a61;font-weight:normal\">Évolution</th></tr>\n    ${tableau}\n  </table>\n  <p style=\"margin-top:20px;font-size:12px;color:#5b6a61\">Source : RNM FranceAgriMer, ${d.nb_cotations} cotation(s) cette semaine, dernière le ${d.derniere_date}. Commentaire rédigé par IA à partir de ces seuls chiffres.</p>\n</td></tr>\n<tr><td style=\"padding:16px 24px;border-top:1px solid #dfe4dc;font-size:12px;color:#5b6a61\">\n  Vous recevez ce bulletin car vous êtes abonné Premium. Merci de ne pas le transférer. Pour vous désabonner, répondez simplement à cet e-mail.\n</td></tr></table></td></tr></table></body></html>`;\n\nconst texte = `${sujet}\\n\\n${commentaire}\\n\\nSource : RNM FranceAgriMer. Pour vous désabonner, répondez à cet e-mail.`;\n\nconst whatsapp = [\n  `*Baromètre mangue · ${d.semaine}*`,\n  `${marche} : *${fmt(d.prix)} €/kg* (${vTexte})`,\n  commentaire ? `\\n${commentaire}` : '',\n  `\\n_Réservé aux abonnés Premium, merci de ne pas transférer._`,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { semaine: d.semaine, sujet, html, texte, whatsapp, commentaire_present: !!commentaire } }];"
+        "jsCode": "// Construit le bulletin COMPLET de la semaine (réservé aux abonnés) : e-mail HTML + texte WhatsApp.\nconst lignes = $('Lire la semaine').all().map((i) => i.json).filter((r) => r.semaine);\nif (!lignes.length) throw new Error('Aucune cotation en base : rien à envoyer.');\n\nconst d = lignes.at(-1);\nconst p = lignes.at(-2);\nconst fmt = (n) => Number(n).toFixed(2).replace('.', ',');\nconst v = p ? ((d.prix - p.prix) / p.prix) * 100 : null;\nconst vTexte = v === null ? 'première semaine suivie' : `${v >= 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')} % sur une semaine`;\nconst marche = d.marches || 'Rungis';\n// Le commentaire n'est utilisé que s'il porte sur la dernière semaine cotée.\nconst commentaire = d.cle_commentaire === d.cle ? String(d.commentaire ?? '').trim() : '';\nconst echapper = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// Veille conformité (workflow 04). Tant qu'elle n'a jamais tourné, la rubrique n'apparaît pas.\nconst veille = $input.first()?.json ?? {};\nconst veilleActive = !veille.error && !!veille.veille_maj_le;\nconst alertes = veilleActive ? (veille.alertes_mangue ?? []) : [];\nconst autres = veilleActive ? Number(veille.autres_semaine ?? 0) : 0;\nconst DATE_FR = (iso) => { const [a, m, j] = String(iso).split('-'); return `${j}/${m}/${a}`; };\nconst ligneAlerte = (a) => `${DATE_FR(a.date_alerte)} · ${a.pays_nom || 'Afrique de l\\'Ouest'} · ${a.titre}`;\nconst sansAlerte = \"Aucune alerte enregistrée sur la mangue d'Afrique de l'Ouest ces 30 derniers jours (RASFF, interceptions relevées, LMR).\";\nconst autresTexte = autres ? `Cette semaine, ${autres} autre(s) notification(s) RASFF sur des produits d'Afrique de l'Ouest (hors mangue).` : '';\n\nconst sujet = `Baromètre mangue ${d.semaine} : ${fmt(d.prix)} €/kg (${vTexte})`;\n\nconst tableau = lignes.slice(-6).reverse().map((r, i, inv) => {\n  const prec = inv[i + 1];\n  const e = prec ? ((r.prix - prec.prix) / prec.prix) * 100 : null;\n  return `<tr><td style=\"padding:6px 10px;border-top:1px solid #dfe4dc\">${r.semaine}</td>`\n    + `<td style=\"padding:6px 10px;border-top:1px solid #dfe4dc;text-align:right\">${fmt(r.prix)} €/kg</td>`\n    + `<td style=\"padding:6px 10px;border-top:1px solid #dfe4dc;text-align:right;color:#5b6a61\">${e === null ? '—' : `${e >= 0 ? '+' : ''}${e.toFixed(1).replace('.', ',')} %`}</td></tr>`;\n}).join('');\n\nconst html = `<!doctype html><html lang=\"fr\"><body style=\"margin:0;background:#f7f8f5;font-family:Arial,Helvetica,sans-serif;color:#0f1a14\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"padding:24px 12px\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:560px;background:#ffffff;border:1px solid #dfe4dc;border-radius:16px\">\n<tr><td style=\"background:#146c43;color:#ffffff;padding:18px 24px;border-radius:16px 16px 0 0\">\n  <div style=\"font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.8\">Baromètre abonnés · semaine ${d.semaine.slice(1)}</div>\n  <div style=\"font-size:20px;font-weight:bold;margin-top:4px\">Mangue · prix grossiste · ${echapper(marche)}</div>\n</td></tr>\n<tr><td style=\"padding:24px\">\n  <div style=\"font-size:34px;font-weight:bold\">${fmt(d.prix)} <span style=\"font-size:16px;color:#5b6a61\">€/kg</span></div>\n  <div style=\"margin-top:4px;font-weight:bold;color:${v !== null && v < 0 ? '#c2410c' : '#146c43'}\">${vTexte}</div>\n  ${commentaire ? `<div style=\"margin-top:20px;padding:16px;border-left:4px solid #e8900c;background:#fdecd0;border-radius:8px\">\n    <div style=\"font-size:12px;font-weight:bold;text-transform:uppercase;color:#5b6a61\">Lecture de la semaine</div>\n    <div style=\"margin-top:6px;font-size:16px;line-height:1.5\">${echapper(commentaire)}</div></div>` : ''}\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:20px;font-size:14px\">\n    <tr><th align=\"left\" style=\"padding:6px 10px;color:#5b6a61;font-weight:normal\">Semaine</th><th align=\"right\" style=\"padding:6px 10px;color:#5b6a61;font-weight:normal\">Prix moyen</th><th align=\"right\" style=\"padding:6px 10px;color:#5b6a61;font-weight:normal\">Évolution</th></tr>\n    ${tableau}\n  </table>\n  ${veilleActive ? `<div style=\"margin-top:20px;padding:16px;border:1px solid #dfe4dc;border-radius:8px\">\n    <div style=\"font-size:12px;font-weight:bold;text-transform:uppercase;color:#5b6a61\">Conformité UE · mangue</div>\n    ${alertes.length\n      ? alertes.map((a) => `<div style=\"margin-top:8px;font-size:14px;line-height:1.5\">${echapper(ligneAlerte(a))}${a.url ? ` · <a href=\"${echapper(a.url)}\" style=\"color:#146c43\">détail</a>` : ''}</div>`).join('')\n      : `<div style=\"margin-top:8px;font-size:14px;line-height:1.5\">${sansAlerte}</div>`}\n    ${autresTexte ? `<div style=\"margin-top:8px;font-size:12px;color:#5b6a61\">${autresTexte}</div>` : ''}\n  </div>` : ''}\n  <p style=\"margin-top:20px;font-size:12px;color:#5b6a61\">Source : RNM FranceAgriMer, ${d.nb_cotations} cotation(s) cette semaine, dernière le ${d.derniere_date}. Commentaire rédigé par IA à partir de ces seuls chiffres.</p>\n</td></tr>\n<tr><td style=\"padding:16px 24px;border-top:1px solid #dfe4dc;font-size:12px;color:#5b6a61\">\n  Vous recevez ce bulletin car vous êtes abonné Premium. Merci de ne pas le transférer. Pour vous désabonner, répondez simplement à cet e-mail.\n</td></tr></table></td></tr></table></body></html>`;\n\nconst texte = `${sujet}\\n\\n${commentaire}${veilleActive ? `\\n\\nConformité UE · mangue :\\n${alertes.length ? alertes.map(ligneAlerte).join('\\n') : sansAlerte}` : ''}\\n\\nSource : RNM FranceAgriMer. Pour vous désabonner, répondez à cet e-mail.`;\n\nconst whatsapp = [\n  `*Baromètre mangue · ${d.semaine}*`,\n  `${marche} : *${fmt(d.prix)} €/kg* (${vTexte})`,\n  commentaire ? `\\n${commentaire}` : '',\n  veilleActive ? `\\n*Conformité UE · mangue*\\n${alertes.length ? alertes.map((a) => `• ${ligneAlerte(a)}`).join('\\n') : sansAlerte}` : '',\n  `\\n_Réservé aux abonnés Premium, merci de ne pas transférer._`,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { semaine: d.semaine, sujet, html, texte, whatsapp, commentaire_present: !!commentaire } }];"
       },
       "name": "Préparer le bulletin",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
+        680,
         100
       ],
       "id": "1af4ddff-2b4e-419f-80a6-649c8dc29ac0"
@@ -74,7 +74,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        680,
+        900,
         100
       ],
       "id": "3cf44c4f-1547-4985-85e7-110d3926e0ad",
@@ -89,7 +89,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        900,
+        1120,
         100
       ],
       "id": "9919ae9b-d80c-4c5f-8b14-4c70de8b3118"
@@ -109,17 +109,17 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1120,
+        1340,
         100
       ],
       "id": "17aeb3fc-23d6-48e9-83ac-6af8432a7b72"
     },
     {
       "parameters": {
-        "width": 1300,
+        "width": 1500,
         "height": 220,
         "color": 4,
-        "content": "## Bulletin abonnés du vendredi\nChaque vendredi à 8 h (heure d'Abidjan) : semaine en cours + commentaire IA COMPLET → e-mail à chaque abonné actif de `ie.abonnes` via **Resend**, puis un e-mail pour vous avec le message WhatsApp prêt à coller dans le groupe privé.\nCredentials : **Supabase IE** sur les 2 nœuds Postgres, **Resend** (Header Auth : `Authorization` = `Bearer re_…`) sur *Envoyer avec Resend*.\nRéglages (expéditeur, votre e-mail) en haut du nœud *Préparer les envois*."
+        "content": "## Bulletin abonnés du vendredi\nChaque vendredi à 8 h (heure d'Abidjan) : semaine en cours + commentaire IA COMPLET → e-mail à chaque abonné actif de `ie.abonnes` via **Resend**, puis un e-mail pour vous avec le message WhatsApp prêt à coller dans le groupe privé.\nRubrique **Conformité UE · mangue** ajoutée si le workflow 04 a déjà tourné (sinon elle est simplement absente).\nCredentials : **Supabase IE** sur les 3 nœuds Postgres, **Resend** (Header Auth : `Authorization` = `Bearer re_…`) sur *Envoyer avec Resend*.\nRéglages (expéditeur, votre e-mail) en haut du nœud *Préparer les envois*."
       },
       "name": "Note bulletin",
       "type": "n8n-nodes-base.stickyNote",
@@ -129,6 +129,24 @@
         -260
       ],
       "id": "0c56d5e4-6242-4c55-846a-3a5c9110ef95"
+    },
+    {
+      "name": "Lire les alertes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        460,
+        300
+      ],
+      "id": "eae9331b-0b22-5920-b384-987d41280a2a",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  coalesce((select json_agg(a order by a.date_alerte desc) from (\n     select date_alerte::text as date_alerte, pays_nom, danger, decision, coalesce(nullif(titre_fr, ''), titre) as titre, url\n     from ie.alertes_conformite\n     where produit = 'mangue' and date_alerte between current_date - 30 and current_date + 60\n     order by date_alerte desc\n     limit 5\n  ) a), '[]'::json) as alertes_mangue,\n  (select count(*)::int from ie.alertes_conformite\n    where produit <> 'mangue' and source = 'rasff' and date_alerte >= current_date - 7) as autres_semaine,\n  (select max(cree_le)::text from ie.journal_collectes where workflow = '04') as veille_maj_le;",
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -158,7 +176,7 @@
       "main": [
         [
           {
-            "node": "Préparer le bulletin",
+            "node": "Lire les alertes",
             "type": "main",
             "index": 0
           }
@@ -192,6 +210,17 @@
         [
           {
             "node": "Envoyer avec Resend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire les alertes": {
+      "main": [
+        [
+          {
+            "node": "Préparer le bulletin",
             "type": "main",
             "index": 0
           }

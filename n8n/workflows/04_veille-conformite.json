@@ -1,0 +1,905 @@
+{
+  "name": "04 Veille conformité (RASFF + LMR + Sheet)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "e5595fc0-471e-5e03-9458-4c95176015e8",
+      "name": "Chaque lundi 6 h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d7f2c8de-e350-5db1-9402-45ff4f8c46aa",
+      "name": "Lancer à la main",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nombre de pages de 50 notifications RASFF à lire, les plus récentes d'abord. 4 pages ≈ 2 semaines de RASFF.\n// Premier lancement : mettre 120 pour récupérer environ un an d'historique, puis revenir à 4.\nconst PAGES = 4;\nreturn Array.from({ length: PAGES }, (_, i) => ({ json: { page: i + 1 } }));"
+      },
+      "id": "d647c414-6ca1-531d-b96c-97db40768434",
+      "name": "Pages RASFF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://webgate.ec.europa.eu/rasff-window/backend/public/notification/search/consolidated/en/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ parameters: { pageNumber: $json.page, itemsPerPage: 50 } }) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
+        }
+      },
+      "id": "7322251e-acbc-52e9-89cb-64e583085a41",
+      "name": "RASFF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transforme les réponses du RASFF en lignes pour ie.alertes_conformite.\n// Garde uniquement les produits originaires d'Afrique de l'Ouest et repère la mangue, le piment et l'ananas.\n// L'interface du RASFF n'est pas documentée : les champs sont cherchés sous plusieurs noms possibles\n// et la notification d'origine est conservée dans « brut ».\nconst PAYS = {\n  CI: \"Côte d'Ivoire\", SN: 'Sénégal', ML: 'Mali', BF: 'Burkina Faso', BJ: 'Bénin', GH: 'Ghana', GN: 'Guinée',\n  TG: 'Togo', NG: 'Nigeria', NE: 'Niger', GM: 'Gambie', GW: 'Guinée-Bissau', SL: 'Sierra Leone', LR: 'Liberia',\n  CV: 'Cap-Vert', MR: 'Mauritanie',\n};\nconst NOMS = {\n  'ivory coast': 'CI', \"cote d'ivoire\": 'CI', senegal: 'SN', mali: 'ML', 'burkina faso': 'BF', benin: 'BJ',\n  ghana: 'GH', guinea: 'GN', togo: 'TG', nigeria: 'NG', niger: 'NE', gambia: 'GM', 'the gambia': 'GM',\n  'guinea-bissau': 'GW', 'guinea bissau': 'GW', 'sierra leone': 'SL', liberia: 'LR', 'cape verde': 'CV',\n  'cabo verde': 'CV', mauritania: 'MR',\n};\nconst norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’`]/g, \"'\").trim().toLowerCase();\n\n// Toutes les valeurs texte d'un champ, qu'il soit texte, liste ou objet ({ isoCode, name, description… }).\nconst textes = (v, prof = 0) => {\n  if (v === null || v === undefined || prof > 3) return [];\n  if (typeof v === 'string' || typeof v === 'number') return String(v).trim() ? [String(v).trim()] : [];\n  if (Array.isArray(v)) return v.flatMap((x) => textes(x, prof + 1));\n  if (typeof v === 'object') {\n    const t = ['isoCode', 'iso', 'code', 'name', 'description', 'label', 'value']\n      .filter((k) => v[k] !== undefined)\n      .flatMap((k) => textes(v[k], prof + 1));\n    return t.length ? t : Object.values(v).flatMap((x) => textes(x, prof + 1));\n  }\n  return [];\n};\nconst premier = (x, ...cles) => {\n  for (const k of cles) {\n    const t = textes(x[k])[0];\n    if (t) return t;\n  }\n  return '';\n};\n\nconst origines = (x) => {\n  const codes = new Set();\n  const valeurs = Object.entries(x).filter(([k]) => /origin/i.test(k)).flatMap(([, v]) => textes(v));\n  for (const v of valeurs) {\n    if (/^[A-Z]{2}$/.test(v) && PAYS[v]) codes.add(v);\n    for (const morceau of v.split(/[,;]/)) if (NOMS[norm(morceau)]) codes.add(NOMS[norm(morceau)]);\n  }\n  // Repli : le titre du RASFF suit presque toujours le modèle « danger in produit from pays (via pays) ».\n  if (!codes.size) {\n    const apres = norm(premier(x, 'subject', 'title')).split(/\\bfrom\\b/)[1]?.split(/\\bvia\\b/)[0] ?? '';\n    for (const morceau of apres.split(/,| and |\\(|\\)/)) if (NOMS[norm(morceau)]) codes.add(NOMS[norm(morceau)]);\n  }\n  return [...codes];\n};\n\n// Accepte 2026-07-10, 10-07-2026 11:38:37 (format du RASFF) et un horodatage en secondes ou millisecondes.\nconst dateIso = (v) => {\n  const s = String(v ?? '').trim();\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{2})[-/.](\\d{2})[-/.](\\d{4})/);\n  if (m) return `${m[3]}-${m[2]}-${m[1]}`;\n  if (/^\\d{10,13}$/.test(s)) return new Date(Number(s) * (s.length === 10 ? 1000 : 1)).toISOString().slice(0, 10);\n  return null;\n};\n\nconst produit = (t) => (/mango/.test(t) ? 'mangue' : /chil+i|capsicum/.test(t) ? 'piment' : /pineapple/.test(t) ? 'ananas' : 'autre');\nconst danger = (t) =>\n  /aflatoxin|ochratoxin|mycotoxin|fumonisin/.test(t) ? 'mycotoxines'\n  : /pesticide|residue|chlorpyrifos|dimethoate|omethoate|carbendazim|imidacloprid|cypermethrin|acetamiprid|thiamethoxam|ethylene oxide/.test(t) ? 'pesticides'\n  : /salmonella|listeria|escherichia|e\\. ?coli|norovirus|hepatitis|bacillus|mould|enterobacter|vibrio/.test(t) ? 'microbiologie'\n  : /sudan|colour|color|sulphite|sulfite|additive|benzoic|sorbic/.test(t) ? 'additifs'\n  : /insect|fruit fl|bactrocera|ceratitis|thaumatotibia|harmful organism|larva|infest|weevil/.test(t) ? 'organismes nuisibles'\n  : /certificate|document|unauthori[sz]ed|illegal|labell/.test(t) ? 'documentaire'\n  : 'autre';\n\nconst estNotif = (o) => o && typeof o === 'object' && !Array.isArray(o) && ('subject' in o || 'notifId' in o || 'reference' in o);\nconst trouverListe = (o, prof = 0) => {\n  if (Array.isArray(o)) return o;\n  if (!o || typeof o !== 'object' || prof > 3) return [];\n  for (const k of ['notifications', 'content', 'items', 'results', 'data', 'list', 'records']) if (Array.isArray(o[k])) return o[k];\n  for (const v of Object.values(o)) {\n    const l = trouverListe(v, prof + 1);\n    if (l.length && typeof l[0] === 'object') return l;\n  }\n  return [];\n};\n\nconst reponses = $input.all().map((i) => i.json);\nconst notifs = reponses.flatMap((r) => (estNotif(r) ? [r] : trouverListe(r)));\nconst vues = new Set();\nconst dates = [];\nconst lignes = [];\nfor (const x of notifs) {\n  const reference = premier(x, 'reference', 'notificationReference', 'notifId', 'id');\n  if (!reference || vues.has(reference)) continue;\n  vues.add(reference);\n  const d = dateIso(premier(x, 'ecValidationDate', 'notificationDate', 'validationDate', 'date', 'createdDate'));\n  if (d) dates.push(d);\n  const codes = origines(x);\n  if (!codes.length) continue;\n  const titre = premier(x, 'subject', 'title') || `Notification RASFF ${reference}`;\n  const categorie = premier(x, 'productCategory', 'productType');\n  const t = norm(`${titre} ${categorie} ${premier(x, 'hazards', 'hazard', 'hazardCategory')}`);\n  const id = textes(x.notifId ?? x.notificationId ?? x.id)[0] ?? '';\n  lignes.push({\n    source: 'rasff',\n    reference,\n    date_alerte: d ?? new Date().toISOString().slice(0, 10),\n    produit: produit(t),\n    pays: codes[0],\n    pays_nom: codes.map((c) => PAYS[c]).join(', '),\n    danger: danger(t),\n    gravite: premier(x, 'riskDecision', 'risk', 'riskLevel'),\n    decision: premier(x, 'notificationClassification', 'classification', 'notificationType'),\n    titre,\n    detail: categorie,\n    url: /^\\d+$/.test(id) ? `https://webgate.ec.europa.eu/rasff-window/screen/notification/${id}` : null,\n    brut: x,\n  });\n}\ndates.sort();\nconst echecs = reponses.filter((r) => r.error).map((r) => JSON.stringify(r.error).slice(0, 200));\nlet erreur = echecs.length ? `RASFF : ${echecs.length} page(s) en erreur. ${echecs[0]}` : '';\nif (!notifs.length) erreur ||= `RASFF : aucune notification lue. Réponse : ${JSON.stringify(reponses[0] ?? {}).slice(0, 300)}`;\nreturn [{ json: {\n  lignes,\n  recues: vues.size,\n  afrique_ouest: lignes.length,\n  periode_lue: dates.length ? `${dates[0]} → ${dates.at(-1)}` : null,\n  erreur,\n} }];"
+      },
+      "id": "bdeac8fe-1064-57de-baec-45411c50815b",
+      "name": "Lire RASFF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(source text, reference text, date_alerte date, produit text, pays text,\n    pays_nom text, danger text, gravite text, decision text, titre text, detail text, url text, brut jsonb)\n), ins as (\n  insert into ie.alertes_conformite (source, reference, date_alerte, produit, pays, pays_nom, danger, gravite, decision, titre, detail, url, brut)\n  select source, reference, date_alerte, produit, pays, pays_nom, danger, gravite, decision, titre, detail, url, brut from lignes\n  on conflict (source, reference)\n  do update set date_alerte = excluded.date_alerte, produit = excluded.produit, pays = excluded.pays, pays_nom = excluded.pays_nom,\n                danger = excluded.danger, gravite = excluded.gravite, decision = excluded.decision, titre = excluded.titre,\n                detail = excluded.detail, url = excluded.url, brut = coalesce(excluded.brut, ie.alertes_conformite.brut), maj_le = now()\n  returning (xmax = 0) as nouvelle, source, reference, date_alerte::text as date_alerte, produit, pays_nom, danger, decision, titre, url\n), journal as (\n  insert into ie.journal_collectes (workflow, source, recues, nouvelles, erreur)\n  select '04', $4, $2::int, (select count(*) from ins where nouvelle), nullif($3, '')\n)\nselect (select count(*) from ins)::int as enregistrees,\n       (select count(*) from ins where nouvelle)::int as nb_nouvelles,\n       coalesce((select json_agg(i) from ins i where i.nouvelle), '[]'::json) as nouvelles;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes), $json.recues, $json.erreur ?? '', 'rasff' ] }}"
+        }
+      },
+      "id": "e05764d7-200e-5f3a-85e7-f375cd550c34",
+      "name": "Enregistrer RASFF",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/A_REMPLACER/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "alertes",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "0527490b-862c-59e0-a9c6-7b95582d848e",
+      "name": "Lire l'onglet alertes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        0
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lit l'onglet « alertes » du Google Sheet : interceptions EUROPHYT/TRACES, rapports AGRINFO, infos terrain…\n// Colonnes : date, source, produit, pays, danger, decision, titre, detail, lien.\n// Chaque ligne reçoit une empreinte : modifier une ligne met à jour la même alerte au lieu d'en créer une autre.\nconst PAYS = {\n  CI: \"Côte d'Ivoire\", SN: 'Sénégal', ML: 'Mali', BF: 'Burkina Faso', BJ: 'Bénin', GH: 'Ghana', GN: 'Guinée',\n  TG: 'Togo', NG: 'Nigeria', NE: 'Niger', GM: 'Gambie', GW: 'Guinée-Bissau', SL: 'Sierra Leone', LR: 'Liberia',\n  CV: 'Cap-Vert', MR: 'Mauritanie',\n};\nconst texte = (v) => String(v ?? '').trim();\nconst norm = (s) => texte(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’`]/g, \"'\").toLowerCase();\nconst NOMS = Object.fromEntries(Object.entries(PAYS).map(([c, n]) => [norm(n), c]));\nObject.assign(NOMS, { 'ivory coast': 'CI', 'cote divoire': 'CI', senegal: 'SN', benin: 'BJ', guinea: 'GN', gambia: 'GM' });\n// Accepte 2026-10-09, 09/10/2026 et le numéro de série de Google Sheets.\nconst date = (v) => {\n  const s = texte(v);\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return new Date(Date.UTC(1899, 11, 30) + Number(s) * 864e5).toISOString().slice(0, 10);\n  return null;\n};\nconst empreinte = (s) => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return h.toString(16); };\nconst source = (s) => (/europhyt|traces/.test(norm(s)) ? 'europhyt' : /agrinfo/.test(norm(s)) ? 'agrinfo' : 'manuel');\nconst produit = (s) => {\n  const t = norm(s);\n  return !t || /mangu|mango/.test(t) ? 'mangue' : /piment|chil+i|capsicum/.test(t) ? 'piment' : /ananas|pineapple/.test(t) ? 'ananas' : 'autre';\n};\nconst DANGERS = ['pesticides', 'mycotoxines', 'microbiologie', 'organismes nuisibles', 'additifs', 'documentaire'];\nconst danger = (s, src, titre) => {\n  const t = norm(`${s} ${titre}`);\n  const connu = DANGERS.find((d) => norm(s).startsWith(d.slice(0, 6)));\n  if (connu) return connu;\n  if (/mouche|insecte|bactrocera|organisme|fruit fl/.test(t)) return 'organismes nuisibles';\n  if (/pesticide|residu|lmr/.test(t)) return 'pesticides';\n  if (/aflatox|ochratox|mycotox/.test(t)) return 'mycotoxines';\n  if (/salmonel|listeria|coli|bacter/.test(t)) return 'microbiologie';\n  return src === 'europhyt' ? 'organismes nuisibles' : 'autre';\n};\n\nconst lignes = [];\nconst erreurs = [];\n$input.all().forEach((item, i) => {\n  const r = item.json;\n  if (r.error) { erreurs.push(`Onglet « alertes » illisible : ${JSON.stringify(r.error).slice(0, 200)}`); return; }\n  if (!texte(r.titre) && !texte(r.date)) return;\n  const d = date(r.date);\n  if (!d || !texte(r.titre)) { erreurs.push(`Ligne ${i + 2} : date ou titre manquant`); return; }\n  const p = texte(r.pays);\n  const code = /^[A-Za-z]{2}$/.test(p) && PAYS[p.toUpperCase()] ? p.toUpperCase() : NOMS[norm(p)] ?? '';\n  const src = source(r.source);\n  lignes.push({\n    source: src,\n    reference: empreinte([d, norm(r.titre), norm(p), norm(r.source)].join('|')),\n    date_alerte: d,\n    produit: produit(r.produit),\n    pays: code,\n    pays_nom: code ? PAYS[code] : p,\n    danger: danger(texte(r.danger), src, texte(r.titre)),\n    gravite: '',\n    decision: texte(r.decision) || (src === 'europhyt' ? 'interception' : ''),\n    titre: texte(r.titre),\n    detail: texte(r.detail),\n    url: texte(r.lien) || null,\n    brut: null,\n  });\n});\nreturn [{ json: { lignes, recues: lignes.length, erreur: erreurs.join(' ; '), erreurs } }];"
+      },
+      "id": "86bc114b-7fea-5e87-b29c-5dc6e033a328",
+      "name": "Préparer les alertes manuelles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(source text, reference text, date_alerte date, produit text, pays text,\n    pays_nom text, danger text, gravite text, decision text, titre text, detail text, url text, brut jsonb)\n), ins as (\n  insert into ie.alertes_conformite (source, reference, date_alerte, produit, pays, pays_nom, danger, gravite, decision, titre, detail, url, brut)\n  select source, reference, date_alerte, produit, pays, pays_nom, danger, gravite, decision, titre, detail, url, brut from lignes\n  on conflict (source, reference)\n  do update set date_alerte = excluded.date_alerte, produit = excluded.produit, pays = excluded.pays, pays_nom = excluded.pays_nom,\n                danger = excluded.danger, gravite = excluded.gravite, decision = excluded.decision, titre = excluded.titre,\n                detail = excluded.detail, url = excluded.url, brut = coalesce(excluded.brut, ie.alertes_conformite.brut), maj_le = now()\n  returning (xmax = 0) as nouvelle, source, reference, date_alerte::text as date_alerte, produit, pays_nom, danger, decision, titre, url\n), journal as (\n  insert into ie.journal_collectes (workflow, source, recues, nouvelles, erreur)\n  select '04', $4, $2::int, (select count(*) from ins where nouvelle), nullif($3, '')\n)\nselect (select count(*) from ins)::int as enregistrees,\n       (select count(*) from ins where nouvelle)::int as nb_nouvelles,\n       coalesce((select json_agg(i) from ins i where i.nouvelle), '[]'::json) as nouvelles;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes), $json.recues, $json.erreur ?? '', 'sheet' ] }}"
+        }
+      },
+      "id": "f6878abe-8908-548d-a650-204346a37a75",
+      "name": "Enregistrer les alertes manuelles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rassemble les alertes apparues pendant cette exécution (RASFF + Google Sheet). Rien de nouveau : on s'arrête ici.\nconst MAX_TRADUITES = 40; // les titres RASFF sont en anglais : on traduit les plus récents\nconst alertes = [\n  ...($('Enregistrer RASFF').first().json.nouvelles ?? []),\n  ...($json.nouvelles ?? []),\n].sort((a, b) => String(b.date_alerte).localeCompare(String(a.date_alerte)));\nif (!alertes.length) return [];\nconst aTraduire = alertes.filter((a) => a.source === 'rasff').slice(0, MAX_TRADUITES);\nreturn [{ json: {\n  alertes,\n  a_traduire: aTraduire.map((a) => ({ source: a.source, reference: a.reference })),\n  liste: aTraduire.map((a, i) => `${i + 1} | ${a.titre}`).join('\\n') || 'aucun',\n} }];"
+      },
+      "id": "b867650b-d5bd-5662-8f0c-d3e8972bfb7a",
+      "name": "Nouvelles alertes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Traduis en français chacun de ces titres de notifications sanitaires de l'Union européenne (base RASFF).\nRéponds uniquement par une ligne par titre, au format « numéro | traduction », dans le même ordre, sans rien ajouter.\nGarde les chiffres, les noms de substances et les numéros tels quels ; écris les pays en français (Ivory Coast → Côte d'Ivoire).\n\n{{ $json.liste }}"
+      },
+      "id": "b94ef9d0-cbda-5864-844e-3eed67c1fdd0",
+      "name": "Traduire les titres",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1980,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": "openrouter/free",
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 2500
+        }
+      },
+      "id": "f317890b-5096-5326-b820-9625b4af2a7a",
+      "name": "OpenRouter (traduction)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Relie chaque ligne « numéro | traduction » de l'IA à son alerte. Ligne manquante ou IA indisponible : titre anglais conservé.\nconst n = $('Nouvelles alertes').first().json;\nconst reponse = String($json.text ?? '').replace(/<think>[\\s\\S]*?<\\/think>/g, '');\nconst titres = [];\nfor (const ligne of reponse.split('\\n')) {\n  const m = ligne.match(/^\\s*(\\d+)\\s*[|:.)-]\\s*(.+?)\\s*$/);\n  const cible = m && n.a_traduire[Number(m[1]) - 1];\n  if (cible && m[2]) titres.push({ ...cible, titre_fr: m[2].replace(/^[\"«\\s]+|[\"»\\s]+$/g, '') });\n}\nreturn [{ json: { titres } }];"
+      },
+      "id": "99cf26e7-3cd9-5176-8044-951642058e33",
+      "name": "Finaliser les titres",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with t as (\n  select * from jsonb_to_recordset($1::jsonb) as r(source text, reference text, titre_fr text)\n), maj as (\n  update ie.alertes_conformite a set titre_fr = t.titre_fr\n  from t\n  where a.source = t.source and a.reference = t.reference\n  returning 1\n)\nselect count(*)::int as titres_traduits from maj;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.titres) ] }}"
+        }
+      },
+      "id": "3c796041-e018-530b-9226-0167c93b1d99",
+      "name": "Enregistrer les titres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RÉGLAGES : mêmes valeurs que dans le nœud « Préparer les envois » du workflow 02.\nconst EXPEDITEUR = 'Veille IE <onboarding@resend.dev>';\nconst ADMIN = 'a-remplacer@exemple.com'; // votre e-mail : reçoit le récapitulatif des nouvelles alertes\nconst MAX_LIGNES = 30;\n\nconst { alertes } = $('Nouvelles alertes').first().json;\nconst fr = new Map(($('Finaliser les titres').first().json.titres ?? []).map((t) => [`${t.source}|${t.reference}`, t.titre_fr]));\nconst titre = (a) => fr.get(`${a.source}|${a.reference}`) || a.titre;\nconst ligne = (a) => `- ${a.date_alerte} · ${a.pays_nom || 'origine non précisée'} · ${a.danger} · ${titre(a)}${a.url ? `\\n  ${a.url}` : ''}`;\nconst suivis = alertes.filter((a) => a.produit !== 'autre');\nconst autres = alertes.filter((a) => a.produit === 'autre');\nconst bloc = (liste) => liste.slice(0, MAX_LIGNES).map(ligne).join('\\n') + (liste.length > MAX_LIGNES ? `\\n… et ${liste.length - MAX_LIGNES} autre(s)` : '');\n\nconst parties = [];\nif (suivis.length) parties.push(`NOS PRODUITS (mangue, piment, ananas) : ${suivis.length}\\n${bloc(suivis)}`);\nif (autres.length) parties.push(`AUTRES PRODUITS D'AFRIQUE DE L'OUEST : ${autres.length}\\n${bloc(autres)}`);\nparties.push(\"Ces alertes apparaîtront dans le bulletin du vendredi (mangue) et sur le site (feu par pays). Vérifiez-les avant diffusion.\");\n\nreturn [{ json: {\n  chemin: 'emails',\n  corps: {\n    from: EXPEDITEUR,\n    to: [ADMIN],\n    subject: `[Veille conformité] ${alertes.length} nouvelle(s) alerte(s)` + (suivis.length ? `, dont ${suivis.length} sur nos produits` : ''),\n    text: parties.join('\\n\\n'),\n  },\n} }];"
+      },
+      "id": "269fcb0b-83d3-5848-b5ad-5a6a1acec346",
+      "name": "Préparer l'e-mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2740,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.resend.com/{{ $json.chemin }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.corps) }}",
+        "options": {}
+      },
+      "id": "e66abe78-b1ae-52e3-ab57-1988f02e8d6b",
+      "name": "Envoyer l'e-mail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2960,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 2,
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "54d84b4e-e3e1-5952-bc01-b253631e8e18",
+      "name": "Le 2 de chaque mois",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.datalake.sante.service.ec.europa.eu/sante/pesticides/pesticide_residues_products?format=json&language=FR&api-version=v2.0",
+        "options": {
+          "timeout": 60000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.nextLink }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextLink }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "388da31b-754d-5ab0-8c51-546015c5ad1d",
+      "name": "Produits (base pesticides UE)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cherche l'identifiant de la mangue dans la liste des produits de la base pesticides de l'UE (code 0163030).\nconst champ = (x, ...cles) => { for (const k of cles) if (x?.[k] !== undefined && x[k] !== null && x[k] !== '') return x[k]; return null; };\nconst produits = $input.all().flatMap((i) => (Array.isArray(i.json.value) ? i.json.value : []));\nconst nom = (p) => String(champ(p, 'product_name', 'productName', 'name') ?? '');\nconst mangue = produits.find((p) => String(champ(p, 'product_code', 'productCode', 'code') ?? '').replace(/\\D/g, '') === '0163030')\n  ?? produits.find((p) => /^mangues?\\b/i.test(nom(p)))\n  ?? produits.find((p) => /mangue|mango/i.test(nom(p)));\nif (!mangue) {\n  // Identifiant fictif : les nœuds suivants ne trouveront rien et l'erreur sera notée dans ie.journal_collectes.\n  return [{ json: { product_id: '0', erreur: `LMR : mangue introuvable parmi ${produits.length} produits. Réponse : ${JSON.stringify($input.first().json).slice(0, 300)}` } }];\n}\nreturn [{ json: { product_id: champ(mangue, 'product_id', 'productId', 'id'), nom: nom(mangue) } }];"
+      },
+      "id": "103a561d-f46d-5744-9465-6176fc64f4fc",
+      "name": "Trouver la mangue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.datalake.sante.service.ec.europa.eu/sante/pesticides/pesticide_residues_mrls?format=json&language=FR&api-version=v2.0&product_id={{ $json.product_id }}",
+        "options": {
+          "timeout": 60000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.nextLink }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextLink }}",
+              "limitPagesFetched": true,
+              "maxRequests": 40,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "ea91b5e4-1f0f-53f0-9951-4adfb8b35c67",
+      "name": "LMR mangue (UE)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "https://api.datalake.sante.service.ec.europa.eu/sante/pesticides/pesticide_residues?format=json&language=FR&api-version=v2.0",
+        "options": {
+          "timeout": 60000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.nextLink }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextLink }}",
+              "limitPagesFetched": true,
+              "maxRequests": 40,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "441c585c-8260-5199-b239-0b2de41230fb",
+      "name": "Noms des substances",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Garde, pour chaque substance, la LMR mangue la plus récente (mg/kg). « 0.01* » = limite de quantification : on garde 0.01.\nconst champ = (x, ...cles) => { for (const k of cles) if (x?.[k] !== undefined && x[k] !== null && x[k] !== '') return x[k]; return null; };\nconst valeurs = (nom) => { try { return $(nom).all().flatMap((i) => (Array.isArray(i.json.value) ? i.json.value : [])); } catch { return []; } };\nconst date = (v) => {\n  const s = String(v ?? '').trim();\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  return null;\n};\nconst nombre = (v) => {\n  const s = String(v ?? '').replace(',', '.').replace(/[^0-9.]/g, '');\n  return s && Number.isFinite(Number(s)) ? Number(s) : null;\n};\n\nconst noms = new Map();\nfor (const s of valeurs('Noms des substances')) {\n  const id = champ(s, 'pesticide_residue_id', 'pesticideResidueId', 'substance_id', 'id');\n  const n = champ(s, 'pesticide_residue_name', 'pesticideResidueName', 'substance_name', 'name');\n  if (id !== null && n) noms.set(String(id), String(n));\n}\nconst mrls = valeurs('LMR mangue (UE)');\nconst parSubstance = new Map();\nfor (const m of mrls) {\n  const id = champ(m, 'pesticide_residue_id', 'pesticideResidueId', 'substance_id');\n  if (id === null) continue;\n  const l = {\n    residu_id: String(id),\n    residu_nom: noms.get(String(id)) ?? String(champ(m, 'pesticide_residue_name', 'pesticideResidueName', 'substance_name') ?? `substance n° ${id}`),\n    valeur: nombre(champ(m, 'mrl_value', 'mrlValue', 'mrl')),\n    unite: 'mg/kg',\n    date_application: date(champ(m, 'entry_into_force_date', 'entryIntoForceDate', 'applicability_date', 'application_date', 'date')),\n  };\n  const ex = parSubstance.get(l.residu_id);\n  if (!ex || (l.date_application && (!ex.date_application || l.date_application > ex.date_application))) parSubstance.set(l.residu_id, l);\n}\nconst lignes = [...parSubstance.values()];\nconst erreur = lignes.length ? '' : `LMR : aucune valeur lue. ${JSON.stringify($('Trouver la mangue').first().json.erreur ?? $('LMR mangue (UE)').first().json).slice(0, 300)}`;\nreturn [{ json: { lignes, recues: mrls.length, erreur } }];"
+      },
+      "id": "b96b768c-bd29-5ac6-9a57-d0f96bd05763",
+      "name": "Préparer les LMR",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        700
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(residu_id text, residu_nom text, valeur numeric, unite text, date_application date)\n), avant as (\n  select count(*) as n from ie.lmr where produit = 'mangue'\n), changees as (\n  -- même instantané pour toute la requête : on lit ici les valeurs d'AVANT la mise à jour\n  select l.*, o.valeur as ancienne\n  from lignes l\n  join ie.lmr o on o.produit = 'mangue' and o.residu_id = l.residu_id\n  where o.valeur is distinct from l.valeur\n), maj as (\n  insert into ie.lmr (produit, residu_id, residu_nom, valeur, unite, date_application)\n  select 'mangue', residu_id, residu_nom, valeur, coalesce(unite, 'mg/kg'), date_application from lignes\n  on conflict (produit, residu_id)\n  do update set residu_nom = excluded.residu_nom, valeur = excluded.valeur, unite = excluded.unite,\n                date_application = excluded.date_application, maj_le = now()\n  returning 1\n), alertes as (\n  -- premier lancement (table vide) : on enregistre sans créer d'alerte\n  insert into ie.alertes_conformite (source, reference, date_alerte, produit, danger, decision, titre, titre_fr, detail, url)\n  select 'ue-lmr', 'mangue-' || residu_id || '-' || coalesce(valeur::text, 'nd'), coalesce(date_application, current_date),\n         'mangue', 'pesticides', 'changement de LMR',\n         'LMR modifiée : ' || residu_nom || ' sur la mangue', 'LMR modifiée : ' || residu_nom || ' sur la mangue',\n         'Ancienne valeur : ' || coalesce(rtrim(rtrim(ancienne::text, '0'), '.'), 'n.d.') || ' mg/kg, nouvelle : '\n           || coalesce(rtrim(rtrim(valeur::text, '0'), '.'), 'n.d.') || ' mg/kg'\n           || coalesce(', applicable le ' || to_char(date_application, 'DD/MM/YYYY'), '') || '.',\n         'https://ec.europa.eu/food/plant/pesticides/eu-pesticides-database/start/screen/mrls'\n  from changees\n  where (select n from avant) > 0\n  on conflict (source, reference) do nothing\n  returning titre, detail\n), journal as (\n  insert into ie.journal_collectes (workflow, source, recues, nouvelles, erreur)\n  select '04', 'ue-lmr', $2::int, (select count(*) from alertes), nullif($3, '')\n)\nselect (select count(*) from maj)::int as lmr_enregistrees,\n       coalesce((select json_agg(a) from alertes a), '[]'::json) as changements;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes), $json.recues, $json.erreur ?? '' ] }}"
+        }
+      },
+      "id": "267f4329-2170-5055-8f24-d629e4558452",
+      "name": "Enregistrer les LMR",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RÉGLAGES : mêmes valeurs que dans « Préparer l'e-mail ».\nconst EXPEDITEUR = 'Veille IE <onboarding@resend.dev>';\nconst ADMIN = 'a-remplacer@exemple.com';\n\nconst { changements = [] } = $json;\nif (!changements.length) return [];\nreturn [{ json: {\n  chemin: 'emails',\n  corps: {\n    from: EXPEDITEUR,\n    to: [ADMIN],\n    subject: `[Veille conformité] ${changements.length} LMR modifiée(s) sur la mangue`,\n    text: changements.map((c) => `- ${c.titre}\\n  ${c.detail}`).join('\\n')\n      + \"\\n\\nSource : base pesticides de l'UE. Vérifiez la date d'application avant d'en parler aux abonnés.\",\n  },\n} }];"
+      },
+      "id": "0e2d3b7c-d5d3-5ffa-a5d3-00032fd29e7a",
+      "name": "E-mail si LMR modifiée",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.resend.com/{{ $json.chemin }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.corps) }}",
+        "options": {}
+      },
+      "id": "b2939cc6-cd29-58ff-86a1-914d8a318496",
+      "name": "Envoyer l'e-mail LMR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        700
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "conformite-mangue",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "79c91081-e0bd-5728-a4e2-0368354ccef8",
+      "name": "API conformité (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1150
+      ],
+      "webhookId": "554041a2-9729-5558-b870-ededc8c885c4"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select coalesce(json_agg(p), '[]'::json) from (\n     select pays, max(pays_nom) as pays_nom,\n            (count(*) filter (where date_alerte >= current_date - 90))::int as n3,\n            count(*)::int as n12,\n            max(date_alerte)::text as derniere\n     from ie.alertes_conformite\n     where produit = 'mangue' and source <> 'ue-lmr' and pays <> ''\n       and date_alerte between current_date - 365 and current_date\n     group by pays\n  ) p) as pays,\n  (select coalesce(json_agg(a order by a.date_alerte desc), '[]'::json) from (\n     select source, reference, date_alerte::text as date_alerte, produit, pays_nom, danger, gravite, decision,\n            coalesce(nullif(titre_fr, ''), titre) as titre\n     from ie.alertes_conformite\n     where produit in ('mangue', 'piment', 'ananas')\n     order by date_alerte desc\n     limit 6\n  ) a) as alertes,\n  (select max(cree_le)::text from ie.journal_collectes where workflow = '04') as maj_le;",
+        "options": {}
+      },
+      "id": "e64f3df3-aaef-5329-90e4-7476105dacbe",
+      "name": "Lire la conformité",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        1150
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Met la veille conformité au format attendu par le site (src/services/marketData.ts).\n// RÉGLAGES du feu tricolore : mangue, par pays d'origine, sur les alertes enregistrées (RASFF + saisies du Sheet).\nconst PAYS_SUIVIS = { CI: \"Côte d'Ivoire\", SN: 'Sénégal', ML: 'Mali', BF: 'Burkina Faso' };\nconst ROUGE_A_PARTIR_DE = 3;  // alertes sur les 90 derniers jours\nconst ORANGE_A_PARTIR_DE = 1; // alertes sur les 12 derniers mois (sinon vert)\n\nconst r = $input.first().json;\nconst parPays = new Map((r.pays ?? []).map((p) => [p.pays, p]));\nconst feux = [...new Set([...Object.keys(PAYS_SUIVIS), ...parPays.keys()])].map((code) => {\n  const p = parPays.get(code) ?? {};\n  const n3 = p.n3 ?? 0;\n  const n12 = p.n12 ?? 0;\n  return {\n    pays: code,\n    nom: PAYS_SUIVIS[code] ?? p.pays_nom ?? code,\n    couleur: n3 >= ROUGE_A_PARTIR_DE ? 'rouge' : n12 >= ORANGE_A_PARTIR_DE ? 'orange' : 'vert',\n    alertes3m: n3,\n    alertes12m: n12,\n    derniere: p.derniere ?? null,\n  };\n});\n\nconst SOURCES = { rasff: 'RASFF (UE)', europhyt: 'EUROPHYT / TRACES', agrinfo: 'AGRINFO', manuel: 'veille IE', 'ue-lmr': 'base pesticides UE' };\nconst decision = (d) => {\n  const t = String(d ?? '').toLowerCase();\n  if (/border rejection|refoul/.test(t)) return 'refoulement à la frontière';\n  if (/alert/.test(t)) return 'alerte';\n  if (/information/.test(t)) return 'information';\n  return String(d ?? '');\n};\nconst alertes = (r.alertes ?? []).map((a) => {\n  const t = `${a.decision} ${a.gravite}`.toLowerCase();\n  const niveau = /border rejection|refoul|^serious|\\bserious/.test(t) && !/not serious/.test(t) ? 'urgent'\n    : /information|not serious/.test(t) ? 'info' : 'attention';\n  return {\n    id: `${a.source}-${a.reference}`,\n    titre: a.titre,\n    produit: a.produit,\n    niveau,\n    date: a.date_alerte,\n    resume: [a.danger !== 'autre' ? a.danger : '', a.pays_nom ? `origine ${a.pays_nom}` : '', decision(a.decision), SOURCES[a.source] ?? a.source]\n      .filter(Boolean).join(' · '),\n  };\n});\nreturn [{ json: { feux, alertes, majLe: r.maj_le ?? null, sources: 'RASFF (UE) et interceptions EUROPHYT relevées par l’analyste' } }];"
+      },
+      "id": "9693be4d-b631-5adf-98b1-2a3fcb234206",
+      "name": "Format du site",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        1150
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "public, max-age=300"
+              }
+            ]
+          }
+        }
+      },
+      "id": "09de751b-0f27-5218-906a-0744c463300d",
+      "name": "Répondre au site",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        1150
+      ]
+    },
+    {
+      "parameters": {
+        "width": 3200,
+        "height": 220,
+        "color": 4,
+        "content": "## ① Chaque lundi 6 h : alertes aux frontières de l'UE\n**RASFF** (4 pages de 50 notifications, réglage dans *Pages RASFF* ; 120 au premier lancement pour un an d'historique) → seules les origines d'Afrique de l'Ouest sont gardées → `ie.alertes_conformite`. Puis l'onglet **alertes** du Google Sheet (interceptions EUROPHYT/TRACES relevées à la main) → même table. Nouvelles alertes → titres traduits par l'IA → e-mail pour vous.\nCredentials : **Supabase IE** (Postgres), **Google Sheets** (coller l'adresse du Sheet), **OpenRouter**, **Resend**. Votre e-mail : en haut de *Préparer l'e-mail*."
+      },
+      "id": "ea9f95b2-7eca-5425-9ebf-fb01750d0cd8",
+      "name": "Note hebdo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "width": 2000,
+        "height": 200,
+        "color": 5,
+        "content": "## ② Le 2 de chaque mois : limites de résidus (LMR) de la mangue\nBase pesticides de l'UE (API officielle, sans clé) → `ie.lmr`. Si une LMR change, une alerte est créée et vous recevez un e-mail. Le premier lancement enregistre les valeurs sans alerte. Votre e-mail : en haut de *E-mail si LMR modifiée*."
+      },
+      "id": "074db30c-8baa-5432-9557-c9bf10856ed0",
+      "name": "Note mensuelle",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "width": 900,
+        "height": 180,
+        "color": 6,
+        "content": "## ③ API lue par le site (publique)\nGET `/webhook/conformite-mangue` → feu vert / orange / rouge par pays d'origine (réglages en haut de *Format du site*) + les 6 dernières alertes sur la mangue, le piment et l'ananas."
+      },
+      "id": "a63d98ca-a1a3-5721-95d3-85e0e8c02251",
+      "name": "Note API",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        950
+      ]
+    }
+  ],
+  "connections": {
+    "Chaque lundi 6 h": {
+      "main": [
+        [
+          {
+            "node": "Pages RASFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lancer à la main": {
+      "main": [
+        [
+          {
+            "node": "Pages RASFF",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Produits (base pesticides UE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pages RASFF": {
+      "main": [
+        [
+          {
+            "node": "RASFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RASFF": {
+      "main": [
+        [
+          {
+            "node": "Lire RASFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire RASFF": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer RASFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer RASFF": {
+      "main": [
+        [
+          {
+            "node": "Lire l'onglet alertes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire l'onglet alertes": {
+      "main": [
+        [
+          {
+            "node": "Préparer les alertes manuelles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer les alertes manuelles": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer les alertes manuelles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer les alertes manuelles": {
+      "main": [
+        [
+          {
+            "node": "Nouvelles alertes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouvelles alertes": {
+      "main": [
+        [
+          {
+            "node": "Traduire les titres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traduire les titres": {
+      "main": [
+        [
+          {
+            "node": "Finaliser les titres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finaliser les titres": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer les titres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer les titres": {
+      "main": [
+        [
+          {
+            "node": "Préparer l'e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer l'e-mail": {
+      "main": [
+        [
+          {
+            "node": "Envoyer l'e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter (traduction)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Traduire les titres",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Le 2 de chaque mois": {
+      "main": [
+        [
+          {
+            "node": "Produits (base pesticides UE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produits (base pesticides UE)": {
+      "main": [
+        [
+          {
+            "node": "Trouver la mangue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trouver la mangue": {
+      "main": [
+        [
+          {
+            "node": "LMR mangue (UE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LMR mangue (UE)": {
+      "main": [
+        [
+          {
+            "node": "Noms des substances",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Noms des substances": {
+      "main": [
+        [
+          {
+            "node": "Préparer les LMR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer les LMR": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer les LMR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer les LMR": {
+      "main": [
+        [
+          {
+            "node": "E-mail si LMR modifiée",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-mail si LMR modifiée": {
+      "main": [
+        [
+          {
+            "node": "Envoyer l'e-mail LMR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API conformité (GET)": {
+      "main": [
+        [
+          {
+            "node": "Lire la conformité",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire la conformité": {
+      "main": [
+        [
+          {
+            "node": "Format du site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format du site": {
+      "main": [
+        [
+          {
+            "node": "Répondre au site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Abidjan"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,774 @@
+{
+  "name": "03 Données commerce (APIs + Google Sheet)",
+  "nodes": [
+    {
+      "id": "79d086d0-e505-4343-99eb-7ef783078f19",
+      "name": "Le 20 de chaque mois",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 20,
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "90710ee6-be02-4fe6-9b73-6590e49d144c",
+      "name": "Lancer à la main",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "3c176b2c-a5a1-4e81-9aad-c150af595a2d",
+      "name": "Eurostat Comext",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "url": "https://ec.europa.eu/eurostat/api/comext/dissemination/statistics/1.0/data/DS-045409?format=JSON&lang=fr&freq=M&reporter=FR&reporter=EU27_2020&partner=CI&partner=SN&product=08045000&flow=1",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "0dfd6bec-9889-4bda-8382-ef8011089edb",
+      "name": "Lire Comext",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Transforme la réponse JSON-stat d'Eurostat Comext en lignes pour ie.flux_commerce\n// (une ligne par pays déclarant, origine et mois, avec valeur en € et poids en kg).\nconst d = $input.first().json;\nif (!d.id || !d.value) {\n  // Comext indisponible ou requête refusée : on continue avec Comtrade et le Sheet, l'erreur reste visible ici.\n  return [{ json: { lignes: [], erreur: 'Comext : ' + JSON.stringify(d).slice(0, 300) } }];\n}\nconst ANNEES_GARDEES = 5;\nconst depuis = String(new Date().getFullYear() - ANNEES_GARDEES);\nconst dims = d.id.map((k) => k.toLowerCase());\nconst codes = d.id.map((k) => {\n  const liste = [];\n  for (const [code, pos] of Object.entries(d.dimension[k].category.index)) liste[pos] = code;\n  return liste;\n});\nconst clePartenaire = d.id.find((k) => k.toLowerCase() === 'partner');\nconst nomsPartenaires = d.dimension[clePartenaire]?.category?.label ?? {};\n\nconst lignes = new Map();\nfor (const [position, v] of Object.entries(d.value)) {\n  if (v === null || v === undefined) continue;\n  let reste = Number(position);\n  const obs = {};\n  for (let i = dims.length - 1; i >= 0; i--) {\n    obs[dims[i]] = codes[i][reste % d.size[i]];\n    reste = Math.floor(reste / d.size[i]);\n  }\n  const periode = String(obs.time).replace('M', '-'); // « 2025M08 » ou « 2025-08 » → « 2025-08 »\n  if (periode < depuis) continue;\n  const cle = [obs.reporter, obs.partner, obs.product, periode].join('|');\n  const l = lignes.get(cle) ?? {\n    source: 'comext', flux: obs.flow === '2' ? 'export' : 'import',\n    declarant: obs.reporter, partenaire: obs.partner, partenaire_nom: nomsPartenaires[obs.partner] ?? '',\n    produit_code: obs.product, periode, valeur: null, devise: 'EUR', poids_kg: null,\n  };\n  const indicateur = String(obs.indicators ?? '');\n  if (/VALUE_IN_EUR/.test(indicateur)) l.valeur = v;\n  else if (/QUANTITY_IN_100KG/.test(indicateur)) l.poids_kg = v * 100;\n  else if (/QUANTITY_IN_KG/.test(indicateur)) l.poids_kg = v;\n  lignes.set(cle, l);\n}\nreturn [{ json: { lignes: [...lignes.values()].filter((l) => l.valeur !== null || l.poids_kg !== null) } }];"
+      }
+    },
+    {
+      "id": "1fe90b49-1254-44e5-a2b9-03404974d6fd",
+      "name": "Enregistrer Comext",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        680,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(source text, flux text, declarant text, partenaire text,\n    partenaire_nom text, produit_code text, periode text, valeur numeric, devise text, poids_kg numeric)\n), ins as (\n  insert into ie.flux_commerce (source, flux, declarant, partenaire, partenaire_nom, produit_code, periode, valeur, devise, poids_kg)\n  select source, flux, declarant, partenaire, coalesce(partenaire_nom, ''), produit_code, periode, valeur, devise, poids_kg\n  from lignes\n  on conflict (source, flux, declarant, partenaire, produit_code, periode)\n  do update set valeur = excluded.valeur, poids_kg = excluded.poids_kg,\n                partenaire_nom = excluded.partenaire_nom, maj_le = now()\n  returning 1\n)\nselect count(*)::int as lignes_enregistrees from ins;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes) ] }}"
+        }
+      }
+    },
+    {
+      "id": "cfac7cde-bbcf-43e4-9c5b-6bc6cf871dd5",
+      "name": "UN Comtrade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        0
+      ],
+      "parameters": {
+        "url": "={{ 'https://comtradeapi.un.org/public/v1/preview/C/A/HS?reporterCode=384,686&cmdCode=080450&flowCode=X&includeDesc=true&period=' + [1, 2, 3].map((n) => $now.year - n).join(',') }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "7ffe7a69-9600-4660-814c-a8398719f55e",
+      "name": "Lire Comtrade",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Exportations de mangues (SH 080450) déclarées par la Côte d'Ivoire et le Sénégal, par pays de destination.\n// Comtrade renvoie parfois plusieurs lignes par destination (mode de transport, régime douanier) : on garde le total.\nconst r = $input.first().json;\nconst data = Array.isArray(r.data) ? r.data : [];\nconst total = (x) => [x.partner2Code, x.motCode].every((c) => c === undefined || c === null || Number(c) === 0)\n  && (x.customsCode === undefined || x.customsCode === null || x.customsCode === 'C00');\nconst lignes = new Map();\nfor (const x of data.filter(total)) {\n  if (x.primaryValue === null || x.primaryValue === undefined) continue;\n  const l = {\n    source: 'comtrade', flux: x.flowCode === 'M' ? 'import' : 'export',\n    declarant: x.reporterISO, partenaire: x.partnerISO, partenaire_nom: x.partnerDesc ?? '',\n    produit_code: String(x.cmdCode), periode: String(x.period),\n    valeur: x.primaryValue, devise: 'USD', poids_kg: x.netWgt ?? null,\n  };\n  lignes.set([l.declarant, l.partenaire, l.periode].join('|'), l);\n}\nconst sortie = { lignes: [...lignes.values()] };\nif (!data.length) sortie.erreur = 'Comtrade : aucune donnée. ' + JSON.stringify(r).slice(0, 300);\nreturn [{ json: sortie }];"
+      }
+    },
+    {
+      "id": "d10d285d-e7cb-4e01-8440-02a1a3b8456c",
+      "name": "Enregistrer Comtrade",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1340,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(source text, flux text, declarant text, partenaire text,\n    partenaire_nom text, produit_code text, periode text, valeur numeric, devise text, poids_kg numeric)\n), ins as (\n  insert into ie.flux_commerce (source, flux, declarant, partenaire, partenaire_nom, produit_code, periode, valeur, devise, poids_kg)\n  select source, flux, declarant, partenaire, coalesce(partenaire_nom, ''), produit_code, periode, valeur, devise, poids_kg\n  from lignes\n  on conflict (source, flux, declarant, partenaire, produit_code, periode)\n  do update set valeur = excluded.valeur, poids_kg = excluded.poids_kg,\n                partenaire_nom = excluded.partenaire_nom, maj_le = now()\n  returning 1\n)\nselect count(*)::int as lignes_enregistrees from ins;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes) ] }}"
+        }
+      }
+    },
+    {
+      "id": "187ccdfc-1bda-4cdf-ada6-bf2724e20719",
+      "name": "Lire les données du mois",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select coalesce(json_agg(f order by f.source, f.periode), '[]'::json) from (\n     select source, declarant, partenaire, partenaire_nom, periode, valeur::float8 as valeur, devise, poids_kg::float8 as poids_kg\n     from ie.flux_commerce\n     where (source = 'comext' and periode >= to_char(now() - interval '26 months', 'YYYY-MM'))\n        or (source = 'comtrade' and periode >= to_char(now() - interval '4 years', 'YYYY'))\n  ) f) as flux,\n  (select coalesce(json_agg(i order by i.date_info), '[]'::json) from (\n     select date_info::text, categorie, pays, titre, detail, valeur::float8 as valeur, unite, source\n     from ie.infos_manuelles\n     where date_info >= current_date - 45\n  ) i) as infos;",
+        "options": {}
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "18b4c5a3-e48c-4c97-a230-53fa1ab5a7ed",
+      "name": "Préparer la note du mois",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Résume les flux en quelques lignes de chiffres pour l'IA (l'IA ne calcule rien elle-même).\nconst { flux = [], infos = [] } = $input.first().json;\nconst fr = flux.filter((f) => f.source === 'comext' && f.declarant === 'FR');\nif (!fr.length) throw new Error(\"Aucune donnée Comext en base : vérifiez le nœud « Eurostat Comext ».\");\n\nconst t = (kg) => `${Math.round((kg ?? 0) / 1000).toLocaleString('fr-FR')} t`;\nconst me = (v) => `${((v ?? 0) / 1e6).toFixed(2).replace('.', ',')} M€`;\nconst prix = (v, kg) => (v && kg ? `${(v / kg).toFixed(2).replace('.', ',')} €/kg` : 'prix n.d.');\n\n// Importations françaises, mois par mois et par origine\nconst mois = [...new Set(fr.map((f) => f.periode))].sort();\nconst dernier = mois.at(-1);\nconst [a, m] = dernier.split('-');\nconst memeMoisAnPasse = `${Number(a) - 1}-${m}`;\nconst ligneMois = (p) => fr.filter((f) => f.periode === p)\n  .map((f) => `${f.partenaire_nom || f.partenaire} ${t(f.poids_kg)}, ${me(f.valeur)}, ${prix(f.valeur, f.poids_kg)}`)\n  .join(' ; ');\nconst serie = mois.slice(-13).map((p) => `${p} : ${ligneMois(p)}`).join('\\n');\n\n// Total UE pour situer la France\nconst ue = flux.filter((f) => f.source === 'comext' && f.declarant !== 'FR' && f.periode === dernier);\nconst ligneUE = ue.length ? `Total UE ${dernier} : ${ue.map((f) => `${f.partenaire_nom || f.partenaire} ${t(f.poids_kg)}`).join(' ; ')}` : '';\n\n// Destinations des exportations ivoiriennes et sénégalaises (Comtrade, annuel)\nconst ct = flux.filter((f) => f.source === 'comtrade' && f.partenaire !== 'W00');\nconst destinations = [...new Set(ct.map((f) => f.declarant))].map((pays) => {\n  const lignes = ct.filter((f) => f.declarant === pays);\n  const annee = lignes.map((f) => f.periode).sort().at(-1);\n  const top = lignes.filter((f) => f.periode === annee).sort((x, y) => y.valeur - x.valeur).slice(0, 5)\n    .map((f) => `${f.partenaire_nom || f.partenaire} ${(f.valeur / 1e6).toFixed(1).replace('.', ',')} M$`);\n  return `Exportations ${pays} ${annee}, 5 premières destinations : ${top.join(', ')}`;\n}).join('\\n');\n\nconst notes = infos.slice(-10).map((i) => `${i.date_info} [${i.categorie}] ${i.titre}${i.detail ? ' : ' + i.detail : ''}`\n  + `${i.valeur !== null ? ` (${i.valeur} ${i.unite})` : ''}${i.source ? ` — ${i.source}` : ''}`).join('\\n');\n\nreturn [{ json: {\n  mois: dernier,\n  donnees: [`Importations françaises de mangues (Eurostat Comext), le plus récent en dernier :`, serie,\n    ligneUE, destinations, notes ? `Infos saisies par l'analyste :\\n${notes}` : ''].filter(Boolean).join('\\n\\n'),\n  comparaison: ligneMois(memeMoisAnPasse) || null,\n  resume_dernier: ligneMois(dernier),\n} }];"
+      }
+    },
+    {
+      "id": "42a48555-07cc-44eb-a90f-185826c423c0",
+      "name": "Rédiger la note du mois",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        2000,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tu es analyste de marché pour des exportateurs de mangues d'Afrique de l'Ouest (Côte d'Ivoire, Sénégal) qui vendent en France.\n\n{{ $json.donnees }}\n\nÉcris une note de 4 phrases maximum, en français simple, pour un exportateur :\n1. les volumes importés par la France le dernier mois ({{ $json.mois }}) par origine, comparés au même mois de l'année précédente s'il figure dans les données ;\n2. le prix moyen à l'import (€/kg) et son évolution ;\n3. ce que disent les destinations des exportations ivoiriennes et sénégalaises (concurrence ou débouchés hors France) ;\n4. si des infos de l'analyste sont fournies, celle qui compte le plus pour la prochaine expédition.\n\nRègles : n'utilise que les chiffres ci-dessus, n'invente aucune cause ni aucun chiffre. Les données Comext ont environ deux mois de retard : dis « en {{ $json.mois }} », jamais « ce mois-ci ». Pas de titre, pas de liste, pas de mise en forme."
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "841bc469-4a7e-461e-bb23-e260ea3564e8",
+      "name": "OpenRouter (mensuel)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        220
+      ],
+      "parameters": {
+        "model": "openrouter/free",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 500
+        }
+      }
+    },
+    {
+      "id": "0cd05ac7-5229-40e7-87e0-6133462a265f",
+      "name": "Finaliser la note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Garde le texte de l'IA ; s'il est vide (modèle gratuit indisponible), écrit une note simple sans IA.\nconst p = $('Préparer la note du mois').first().json;\nconst texteIA = String($json.text ?? '').replace(/<think>[\\s\\S]*?<\\/think>/g, '').trim();\nif (texteIA) return [{ json: { mois: p.mois, texte: texteIA, modele: 'openrouter/free' } }];\nlet texte = `En ${p.mois}, importations françaises de mangues : ${p.resume_dernier}.`;\nif (p.comparaison) texte += ` Un an plus tôt : ${p.comparaison}.`;\nreturn [{ json: { mois: p.mois, texte, modele: 'calcul automatique (IA indisponible)' } }];"
+      }
+    },
+    {
+      "id": "715c9974-7277-4f3a-8b8f-d7ae850de4bb",
+      "name": "Enregistrer la note",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2540,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ie.syntheses_commerce (produit, mois, texte, modele)\nvalues ('mangue', $1, $2, $3)\non conflict (produit, mois)\ndo update set texte = excluded.texte, modele = excluded.modele, cree_le = now();",
+        "options": {
+          "queryReplacement": "={{ [ $json.mois, $json.texte, $json.modele ] }}"
+        }
+      }
+    },
+    {
+      "id": "f943db73-bfac-4278-8665-4196714bd298",
+      "name": "Chaque vendredi 7 h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        600
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                5
+              ],
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1f9eaf8c-39f8-4ff4-8876-92e08454f103",
+      "name": "Lire l'onglet cotations",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        600
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/A_REMPLACER/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "cotations",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "82029afc-7cc0-4114-8f06-5f8a68ef9043",
+      "name": "Préparer les cotations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Lit l'onglet « cotations » du Google Sheet (mêmes règles que le formulaire du workflow 01).\n// Une ligne incomplète ou fausse est ignorée et signalée dans « erreurs », sans bloquer les autres.\nconst texte = (v) => String(v ?? '').trim();\nconst nombre = (v) => { const n = Number(texte(v).replace(/\\s/g, '').replace(',', '.')); return texte(v) === '' || Number.isNaN(n) ? null : n; };\n// Accepte 2026-10-09, 09/10/2026 et le numéro de série de Google Sheets.\nconst date = (v) => {\n  const s = texte(v);\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return new Date(Date.UTC(1899, 11, 30) + Number(s) * 864e5).toISOString().slice(0, 10);\n  return null;\n};\n\nconst lignes = [];\nconst erreurs = [];\n$input.all().forEach((item, i) => {\n  const r = item.json;\n  if (!texte(r.date) && !texte(r.prix_min)) return; // ligne vide\n  const d = date(r.date);\n  const min = nombre(r.prix_min);\n  const max = nombre(r.prix_max);\n  const pb = !d ? 'date invalide' : !(min > 0) || !(max > 0) ? 'prix manquant' : min > max ? 'prix min > prix max'\n    : !texte(r.marche) || !texte(r.origine) ? 'marché ou origine manquant' : '';\n  if (pb) { erreurs.push(`Ligne ${i + 2} : ${pb}`); return; }\n  lignes.push({\n    date_cotation: d, marche: texte(r.marche), origine: texte(r.origine),\n    variete: texte(r.variete), calibre: texte(r.calibre), prix_min: min, prix_max: max,\n    source: texte(r.source) || 'RNM FranceAgriMer', source_url: texte(r.source_url) || null,\n  });\n});\nreturn [{ json: { lignes, erreurs } }];"
+      }
+    },
+    {
+      "id": "d70f7a3d-7855-48a1-adfb-b5db370dabaf",
+      "name": "Enregistrer les cotations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        680,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(date_cotation date, marche text, origine text, variete text,\n    calibre text, prix_min numeric, prix_max numeric, source text, source_url text)\n), ins as (\n  insert into ie.cotations (produit, date_cotation, marche, origine, variete, calibre, prix_min, prix_max, source, source_url)\n  select 'mangue', date_cotation, marche, origine, variete, calibre, prix_min, prix_max, source, source_url from lignes\n  on conflict (produit, date_cotation, marche, origine, variete, calibre)\n  do update set prix_min = excluded.prix_min, prix_max = excluded.prix_max,\n                source = excluded.source, source_url = excluded.source_url\n  returning 1\n)\nselect count(*)::int as cotations_enregistrees from ins;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes) ] }}"
+        }
+      }
+    },
+    {
+      "id": "d3f6ad1c-bf44-416c-9f98-9049eaf16e9d",
+      "name": "Lire l'onglet infos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        600
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/A_REMPLACER/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "infos",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "e65e9289-263c-4c41-9c7a-5883b020cdcb",
+      "name": "Préparer les infos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Lit l'onglet « infos » du Google Sheet : exports Trade Map, infos terrain, réglementation…\n// Chaque ligne reçoit une empreinte : modifier une ligne met à jour la même info au lieu d'en créer une autre.\nconst texte = (v) => String(v ?? '').trim();\nconst nombre = (v) => { const n = Number(texte(v).replace(/\\s/g, '').replace(',', '.')); return texte(v) === '' || Number.isNaN(n) ? null : n; };\n// Accepte 2026-10-09, 09/10/2026 et le numéro de série de Google Sheets.\nconst date = (v) => {\n  const s = texte(v);\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return new Date(Date.UTC(1899, 11, 30) + Number(s) * 864e5).toISOString().slice(0, 10);\n  return null;\n};\n\nconst empreinte = (s) => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return h.toString(16); };\nconst lignes = [];\nconst erreurs = [];\n$input.all().forEach((item, i) => {\n  const r = item.json;\n  if (!texte(r.titre) && !texte(r.date)) return;\n  const d = date(r.date);\n  if (!d || !texte(r.titre)) { erreurs.push(`Ligne ${i + 2} : date ou titre manquant`); return; }\n  lignes.push({\n    id_ligne: empreinte([d, texte(r.titre).toLowerCase(), texte(r.pays).toLowerCase(), texte(r.source).toLowerCase()].join('|')),\n    date_info: d, categorie: texte(r.categorie) || 'autre', produit: texte(r.produit) || 'mangue',\n    pays: texte(r.pays), titre: texte(r.titre), detail: texte(r.detail), valeur: nombre(r.valeur),\n    unite: texte(r.unite), source: texte(r.source), source_url: texte(r.source_url) || null,\n  });\n});\nreturn [{ json: { lignes, erreurs } }];"
+      }
+    },
+    {
+      "id": "e31740cb-2ccf-4307-b624-580a9315a1a5",
+      "name": "Enregistrer les infos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1340,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with lignes as (\n  select * from jsonb_to_recordset($1::jsonb) as r(id_ligne text, date_info date, categorie text, produit text, pays text,\n    titre text, detail text, valeur numeric, unite text, source text, source_url text)\n), ins as (\n  insert into ie.infos_manuelles (id_ligne, date_info, categorie, produit, pays, titre, detail, valeur, unite, source, source_url)\n  select id_ligne, date_info, categorie, produit, pays, titre, detail, valeur, unite, source, source_url from lignes\n  on conflict (id_ligne)\n  do update set categorie = excluded.categorie, produit = excluded.produit, detail = excluded.detail,\n                valeur = excluded.valeur, unite = excluded.unite, source_url = excluded.source_url, maj_le = now()\n  returning 1\n)\nselect count(*)::int as infos_enregistrees from ins;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.lignes) ] }}"
+        }
+      }
+    },
+    {
+      "id": "89ead741-2482-4d62-b89e-dc78f8d76b30",
+      "name": "Lire la série (Sheet)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1560,
+        600
+      ],
+      "executeOnce": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select s.cle, s.semaine, s.prix, s.nb_cotations, s.derniere_date,\n  (select texte from ie.syntheses y where y.produit = 'mangue' order by y.semaine desc limit 1) as commentaire,\n  (select string_agg(distinct marche, ', ') from ie.cotations where produit = 'mangue') as marches\nfrom (\n  select to_char(date_cotation, 'IYYY-IW') as cle,\n         'S' || to_char(date_cotation, 'IW') as semaine,\n         round(avg(prix_moyen), 2)::float8 as prix,\n         count(*)::int as nb_cotations,\n         max(date_cotation)::text as derniere_date\n  from ie.cotations\n  where produit = 'mangue'\n  group by 1, 2\n  order by 1 desc\n  limit 12\n) s\norder by s.cle;",
+        "options": {}
+      }
+    },
+    {
+      "id": "abc90763-8e96-421a-8d97-2246bdf63251",
+      "name": "Préparer le prompt (Sheet)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Rassemble la série hebdomadaire en un seul texte pour l'IA.\nconst lignes = $input.all().map((i) => i.json).filter((r) => r.semaine);\nif (!lignes.length) throw new Error('Aucune cotation en base.');\nconst tableau = lignes\n  .map((r) => `${r.semaine} (${r.cle}) : ${Number(r.prix).toFixed(2)} €/kg, ${r.nb_cotations} cotation(s)`)\n  .join('\\n');\nconst d = lignes.at(-1);\nconst p = lignes.at(-2);\nreturn [{ json: {\n  cle_derniere: d.cle,\n  donnees: tableau,\n  semaine: d.semaine,\n  prix: Number(d.prix),\n  prix_precedent: p ? Number(p.prix) : null,\n} }];"
+      }
+    },
+    {
+      "id": "05b866a6-877f-4d07-9eb3-f1d7fca47a6e",
+      "name": "Rédiger le commentaire (Sheet)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        2000,
+        600
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tu es analyste de marché pour des exportateurs de mangues d'Afrique de l'Ouest (Côte d'Ivoire, Sénégal) qui vendent en France.\n\nVoici le prix moyen grossiste de la mangue, semaine par semaine (le plus récent en dernier) :\n{{ $json.donnees }}\n\nÉcris un commentaire de 3 phrases maximum, en français simple, pour un exportateur :\n1. l'évolution de la dernière semaine par rapport à la précédente (en %) ;\n2. le niveau actuel par rapport à la moyenne de la période ;\n3. un conseil prudent pour la prochaine expédition.\n\nRègles : n'utilise que les chiffres ci-dessus, n'invente aucune cause ni aucun chiffre. S'il n'y a qu'une semaine, dis simplement que la tendance n'est pas encore mesurable. Pas de titre, pas de liste, pas de mise en forme."
+      }
+    },
+    {
+      "id": "43e022b4-bf1c-46e9-b502-fe4bc8f9a62e",
+      "name": "OpenRouter (hebdo)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        820
+      ],
+      "parameters": {
+        "model": "openrouter/free",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 400
+        }
+      }
+    },
+    {
+      "id": "ea060444-fae3-464e-9a77-612062cd2a5f",
+      "name": "Finaliser le commentaire (Sheet)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Garde le texte de l'IA ; s'il est vide (modèle gratuit indisponible ou réponse vide),\n// écrit un commentaire simple calculé à partir des seuls chiffres, sans IA.\nconst p = $('Préparer le prompt (Sheet)').first().json;\nconst texteIA = String($json.text ?? '')\n  .replace(/<think>[\\s\\S]*?<\\/think>/g, '')\n  .trim();\nif (texteIA) return [{ json: { cle: p.cle_derniere, texte: texteIA, modele: 'openrouter/free' } }];\n\nconst fmt = (n) => n.toFixed(2).replace('.', ',');\nlet texte = `Semaine ${p.semaine.slice(1)} : ${fmt(p.prix)} €/kg en moyenne.`;\nif (p.prix_precedent) {\n  const v = ((p.prix - p.prix_precedent) / p.prix_precedent) * 100;\n  texte += v === 0\n    ? ` Prix stable par rapport à la semaine précédente.`\n    : ` ${v > 0 ? 'Hausse' : 'Baisse'} de ${Math.abs(v).toFixed(1).replace('.', ',')} % par rapport à la semaine précédente (${fmt(p.prix_precedent)} €/kg).`;\n} else {\n  texte += \" C'est la première semaine suivie : la tendance n'est pas encore mesurable.\";\n}\nreturn [{ json: { cle: p.cle_derniere, texte, modele: 'calcul automatique (IA indisponible)' } }];"
+      }
+    },
+    {
+      "id": "b407f325-e2e4-4323-b2e2-7242b9d1e58b",
+      "name": "Enregistrer le commentaire (Sheet)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2540,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ie.syntheses (produit, semaine, texte, modele)\nvalues ('mangue', $1, $2, $3)\non conflict (produit, semaine)\ndo update set texte = excluded.texte, modele = excluded.modele, cree_le = now();",
+        "options": {
+          "queryReplacement": "={{ [ $json.cle, $json.texte, $json.modele ] }}"
+        }
+      }
+    },
+    {
+      "id": "5c6bd6c3-9330-4941-9b2a-bd51ab5306ef",
+      "name": "Note mensuelle",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -220
+      ],
+      "parameters": {
+        "width": 2800,
+        "height": 200,
+        "color": 4,
+        "content": "## ① Chaque mois : données officielles, sans saisie\n**Eurostat Comext** (importations de mangues CN 08045000 en France et dans l'UE, depuis la Côte d'Ivoire et le Sénégal, mensuel, ~2 mois de retard) → **UN Comtrade** (exportations SH 080450 de la CI et du Sénégal par destination, annuel) → `ie.flux_commerce` → note de l'IA → `ie.syntheses_commerce`.\nAucune clé d'API. Credentials : **Supabase IE** sur les nœuds Postgres, **OpenRouter** sur le modèle."
+      }
+    },
+    {
+      "id": "d49429b2-2612-4ff9-9429-9a3b83fcfd1e",
+      "name": "Note hebdo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        380
+      ],
+      "parameters": {
+        "width": 2800,
+        "height": 200,
+        "color": 5,
+        "content": "## ② Chaque vendredi 7 h : votre Google Sheet (remplace le formulaire)\nOnglet **cotations** (prix RNM) → `ie.cotations` → commentaire IA de la semaine (`ie.syntheses`, lu par le bulletin de 8 h). Onglet **infos** (exports Trade Map, terrain, réglementation) → `ie.infos_manuelles`, repris dans la note mensuelle.\nCollez l'adresse de votre Sheet dans les 2 nœuds Google Sheets. Credential : **Google Sheets** (connexion Google en 1 clic)."
+      }
+    }
+  ],
+  "connections": {
+    "Le 20 de chaque mois": {
+      "main": [
+        [
+          {
+            "node": "Eurostat Comext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eurostat Comext": {
+      "main": [
+        [
+          {
+            "node": "Lire Comext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire Comext": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer Comext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer Comext": {
+      "main": [
+        [
+          {
+            "node": "UN Comtrade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UN Comtrade": {
+      "main": [
+        [
+          {
+            "node": "Lire Comtrade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire Comtrade": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer Comtrade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer Comtrade": {
+      "main": [
+        [
+          {
+            "node": "Lire les données du mois",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire les données du mois": {
+      "main": [
+        [
+          {
+            "node": "Préparer la note du mois",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer la note du mois": {
+      "main": [
+        [
+          {
+            "node": "Rédiger la note du mois",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rédiger la note du mois": {
+      "main": [
+        [
+          {
+            "node": "Finaliser la note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finaliser la note": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer la note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lancer à la main": {
+      "main": [
+        [
+          {
+            "node": "Eurostat Comext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter (mensuel)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rédiger la note du mois",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chaque vendredi 7 h": {
+      "main": [
+        [
+          {
+            "node": "Lire l'onglet cotations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire l'onglet cotations": {
+      "main": [
+        [
+          {
+            "node": "Préparer les cotations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer les cotations": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer les cotations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer les cotations": {
+      "main": [
+        [
+          {
+            "node": "Lire l'onglet infos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire l'onglet infos": {
+      "main": [
+        [
+          {
+            "node": "Préparer les infos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer les infos": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer les infos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer les infos": {
+      "main": [
+        [
+          {
+            "node": "Lire la série (Sheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire la série (Sheet)": {
+      "main": [
+        [
+          {
+            "node": "Préparer le prompt (Sheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer le prompt (Sheet)": {
+      "main": [
+        [
+          {
+            "node": "Rédiger le commentaire (Sheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rédiger le commentaire (Sheet)": {
+      "main": [
+        [
+          {
+            "node": "Finaliser le commentaire (Sheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finaliser le commentaire (Sheet)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer le commentaire (Sheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter (hebdo)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rédiger le commentaire (Sheet)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Abidjan"
+  },
+  "pinData": {}
+}

@@ -42,3 +42,25 @@ export interface AlerteNorme {
   resume: string
   exemple: boolean
 }
+
+export type CouleurFeu = 'vert' | 'orange' | 'rouge'
+
+/** Feu de conformité d'un pays d'origine pour la mangue, d'après les alertes UE enregistrées (3 et 12 derniers mois) */
+export interface FeuPays {
+  pays: string
+  nom: string
+  couleur: CouleurFeu
+  alertes3m: number
+  alertes12m: number
+  /** Date de la dernière alerte, AAAA-MM-JJ */
+  derniere: string | null
+}
+
+export interface Conformite {
+  feux: FeuPays[]
+  alertes: AlerteNorme[]
+  /** Date de la dernière collecte de la veille (null pour les données d'exemple) */
+  majLe: string | null
+  sources: string
+  exemple: boolean
+}

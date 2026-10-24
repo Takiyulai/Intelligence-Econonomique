@@ -42,7 +42,7 @@ Chaque étape se termine par un livrable vérifiable. On ne passe à la suivante
 | 4.3 | Proposer l'offre Premium (Mobile Money) | DRAMANE | Premiers abonnés payants |
 
 ## Phase 5 — Extension (après validation)
-- Workflow d'alertes normes (veille LMR/RASFF → alerte instantanée).
+- ~~Workflow d'alertes normes (veille LMR/RASFF → alerte instantanée).~~ Avancé le 2026-10-26 : workflow `04_veille-conformite` (RASFF hebdo, LMR mensuelles, interceptions EUROPHYT saisies dans le Sheet, feu par pays sur le site). À tester dans n8n.
 - Automatisation des volumes via l'API Eurostat Comext.
 - Portail abonnés (Softr/Glide) + gestion des abonnements et paiements.
 - Passage éventuel à des modèles IA payants si la qualité ou les quotas gratuits deviennent limitants.
