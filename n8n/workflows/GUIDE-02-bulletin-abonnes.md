@@ -24,8 +24,9 @@ Pour arrêter les envois à quelqu'un : `actif` = false.
 1. **Create credential → Header Auth**, nommée `Resend` : Name `Authorization`, Value `Bearer re_votre_cle`.
 2. Importer `02_bulletin-abonnes.json` (menu **⋯ → Import from File…**).
 3. `Lire la semaine` et `Lire les abonnés` → `Supabase IE` ; `Envoyer avec Resend` → `Resend`.
-4. Ouvrir `Préparer les envois` et modifier les 2 lignes du haut :
+4. Ouvrir le nœud `Réglages` (juste après les déclencheurs) et modifier les lignes :
    `ADMIN` = votre e-mail (celui du compte Resend pour les tests), `EXPEDITEUR` = `Baromètre IE <bulletin@votre-domaine>` une fois le domaine vérifié.
+   (Le workflow envoie aussi un bulletin gratuit aux membres de l'espace : voir `GUIDE-ESPACE-MEMBRE.md`. Les abonnés dont la `date_fin` est passée ne reçoivent plus le bulletin payant.)
 5. **Save**, puis **Publish** pour activer l'envoi automatique du vendredi.
 
 ## Étape 4 : tester

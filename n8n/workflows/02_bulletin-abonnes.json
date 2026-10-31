@@ -20,7 +20,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        0,
+        -220,
         0
       ],
       "id": "fde75f3b-f3e2-48c0-9dd5-461d37cf74bf"
@@ -31,7 +31,7 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        0,
+        -220,
         200
       ],
       "id": "16c9948f-4062-4ec1-b33c-eb8b8f98deb1"
@@ -67,7 +67,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "select email, nom from ie.abonnes where actif and email is not null and email <> '' order by id;",
+        "query": "-- abonnés payants en cours : actifs et pas encore arrivés à leur date de fin (vide = sans fin)\nselect email, nom from ie.abonnes\nwhere actif and (date_fin is null or date_fin >= current_date) and email is not null and email <> ''\norder by id;",
         "options": {}
       },
       "name": "Lire les abonnés",
@@ -83,7 +83,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// RÉGLAGES : à adapter une fois.\n// Sans domaine vérifié sur Resend, seule l'adresse « onboarding@resend.dev » marche, et uniquement vers\n// l'e-mail de votre compte Resend : parfait pour tester. Ensuite, vérifiez un domaine sur resend.com/domains.\nconst EXPEDITEUR = 'Baromètre IE <onboarding@resend.dev>';\nconst ADMIN = 'a-remplacer@exemple.com'; // votre e-mail : reçoit le message WhatsApp prêt à copier\nconst REPONSE_A = ADMIN; // les réponses des abonnés (désabonnement, question à l'analyste) arrivent ici\n\nconst b = $('Préparer le bulletin').first().json;\nconst abonnes = $input.all().map((i) => i.json).filter((a) => a.email);\n\nconst sorties = [];\n// Resend accepte 100 e-mails par appel « batch » : un e-mail par abonné, personne ne voit les autres adresses.\nfor (let i = 0; i < abonnes.length; i += 100) {\n  sorties.push({ json: {\n    chemin: 'emails/batch',\n    corps: abonnes.slice(i, i + 100).map((a) => ({\n      from: EXPEDITEUR, to: [a.email], reply_to: REPONSE_A, subject: b.sujet, html: b.html, text: b.texte,\n    })),\n  } });\n}\n\n// Copie pour vous : le message WhatsApp à coller dans le groupe privé des abonnés.\nsorties.push({ json: {\n  chemin: 'emails',\n  corps: {\n    from: EXPEDITEUR,\n    to: [ADMIN],\n    subject: `[À coller dans WhatsApp] ${b.sujet}`,\n    text: `Bulletin envoyé par e-mail à ${abonnes.length} abonné(s).`\n      + (b.commentaire_present ? '' : '\\nAttention : pas de commentaire IA pour cette semaine.')\n      + `\\n\\nMessage WhatsApp à copier :\\n\\n${b.whatsapp}`,\n  },\n} });\nreturn sorties;"
+        "jsCode": "// Réglages (expéditeur, votre e-mail) : nœud « Réglages » au début du workflow.\nconst { EXPEDITEUR, ADMIN } = $('Réglages').first().json;\nconst REPONSE_A = ADMIN; // les réponses des abonnés (désabonnement, question à l'analyste) arrivent ici\n\nconst b = $('Préparer le bulletin').first().json;\nconst abonnes = $input.all().map((i) => i.json).filter((a) => a.email);\n\nconst sorties = [];\n// Resend accepte 100 e-mails par appel « batch » : un e-mail par abonné, personne ne voit les autres adresses.\nfor (let i = 0; i < abonnes.length; i += 100) {\n  sorties.push({ json: {\n    chemin: 'emails/batch',\n    corps: abonnes.slice(i, i + 100).map((a) => ({\n      from: EXPEDITEUR, to: [a.email], reply_to: REPONSE_A, subject: b.sujet, html: b.html, text: b.texte,\n    })),\n  } });\n}\n\n// Copie pour vous : le message WhatsApp à coller dans le groupe privé des abonnés.\nsorties.push({ json: {\n  chemin: 'emails',\n  corps: {\n    from: EXPEDITEUR,\n    to: [ADMIN],\n    subject: `[À coller dans WhatsApp] ${b.sujet}`,\n    text: `Bulletin envoyé par e-mail à ${abonnes.length} abonné(s).`\n      + (b.commentaire_present ? '' : '\\nAttention : pas de commentaire IA pour cette semaine.')\n      + `\\n\\nMessage WhatsApp à copier :\\n\\n${b.whatsapp}`,\n  },\n} });\nreturn sorties;"
       },
       "name": "Préparer les envois",
       "type": "n8n-nodes-base.code",
@@ -117,16 +117,16 @@
     {
       "parameters": {
         "width": 1500,
-        "height": 220,
+        "height": 260,
         "color": 4,
-        "content": "## Bulletin abonnés du vendredi\nChaque vendredi à 8 h (heure d'Abidjan) : semaine en cours + commentaire IA COMPLET → e-mail à chaque abonné actif de `ie.abonnes` via **Resend**, puis un e-mail pour vous avec le message WhatsApp prêt à coller dans le groupe privé.\nRubrique **Conformité UE · mangue** ajoutée si le workflow 04 a déjà tourné (sinon elle est simplement absente).\nCredentials : **Supabase IE** sur les 3 nœuds Postgres, **Resend** (Header Auth : `Authorization` = `Bearer re_…`) sur *Envoyer avec Resend*.\nRéglages (expéditeur, votre e-mail) en haut du nœud *Préparer les envois*."
+        "content": "## Bulletin abonnés du vendredi\nChaque vendredi à 8 h (heure d'Abidjan) : semaine en cours + commentaire IA COMPLET → e-mail à chaque abonné actif de `ie.abonnes` via **Resend**, puis un e-mail pour vous avec le message WhatsApp prêt à coller dans le groupe privé.\nRubrique **Conformité UE · mangue** ajoutée si le workflow 04 a déjà tourné (sinon elle est simplement absente).\nCredentials : **Supabase IE** sur les 3 nœuds Postgres, **Resend** (Header Auth : `Authorization` = `Bearer re_…`) sur *Envoyer avec Resend*.\nRéglages (expéditeur, votre e-mail, adresse des webhooks) dans le nœud **Réglages**, juste après les déclencheurs.\nBranche du bas : **bulletin gratuit** pour les inscrits confirmés de `ie.prospects` (remplie par l'espace membre du site), avec lien de désinscription. Absente tant que la table n'existe pas."
       },
       "name": "Note bulletin",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -60,
-        -260
+        -280,
+        -300
       ],
       "id": "0c56d5e4-6242-4c55-846a-3a5c9110ef95"
     },
@@ -147,6 +147,70 @@
         "query": "select\n  coalesce((select json_agg(a order by a.date_alerte desc) from (\n     select date_alerte::text as date_alerte, pays_nom, danger, decision, coalesce(nullif(titre_fr, ''), titre) as titre, url\n     from ie.alertes_conformite\n     where produit = 'mangue' and date_alerte between current_date - 30 and current_date + 60\n     order by date_alerte desc\n     limit 5\n  ) a), '[]'::json) as alertes_mangue,\n  (select count(*)::int from ie.alertes_conformite\n    where produit <> 'mangue' and source = 'rasff' and date_alerte >= current_date - 7) as autres_semaine,\n  (select max(cree_le)::text from ie.journal_collectes where workflow = '04') as veille_maj_le;",
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// RÉGLAGES DU BULLETIN : à adapter une fois (les autres nœuds les lisent ici).\n// Sans domaine vérifié sur Resend, seule l'adresse « onboarding@resend.dev » marche, et uniquement vers\n// l'e-mail de votre compte Resend : parfait pour tester. Ensuite, vérifiez un domaine sur resend.com/domains.\nreturn [{ json: {\n  EXPEDITEUR: 'Baromètre IE <onboarding@resend.dev>',\n  ADMIN: 'a-remplacer@exemple.com', // votre e-mail : reçoit les messages WhatsApp prêts à copier et les réponses des lecteurs\n  WEBHOOKS: 'https://dramanetaki.app.n8n.cloud/webhook', // adresse de base des webhooks n8n (liens de désinscription)\n  SITE: '', // adresse du site une fois en ligne (ex. https://barometre-ie.com) : ajoute un lien « Ouvrir mon espace » au bulletin gratuit\n} }];"
+      },
+      "id": "f32ad79a-cefe-502d-8899-4c7889f8b641",
+      "name": "Réglages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- inscrits confirmés qui ne sont pas déjà abonnés payants\nselect p.email, p.whatsapp, p.nom, p.jeton\nfrom ie.prospects p\nwhere p.statut = 'confirme'\n  and not exists (select 1 from ie.abonnes a where a.actif and (a.date_fin is null or a.date_fin >= current_date) and lower(a.email) = p.email)\norder by p.id;",
+        "options": {}
+      },
+      "id": "c5d556fc-25f8-5e2e-a812-f615194d6d7b",
+      "name": "Lire les inscrits gratuits",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        340
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bulletin GRATUIT des inscrits confirmés (ie.prospects) : tendance sans chiffre du jour, prix d'il y a 4 semaines\n// (le même décalage que sur le site), nombre d'alertes sans le détail, et une invitation à passer Premium.\nconst R = $('Réglages').first().json;\nconst lecteurs = $input.all().map((i) => i.json).filter((p) => !p.error && p.jeton);\nconst parEmail = lecteurs.filter((p) => p.email);\nconst parWhatsapp = lecteurs.filter((p) => !p.email && p.whatsapp);\nif (!parEmail.length && !parWhatsapp.length) return [];\n\nconst lignes = $('Lire la semaine').all().map((i) => i.json).filter((r) => r.semaine);\nconst d = lignes.at(-1);\nconst p = lignes.at(-2);\nconst decale = lignes.length > 4 ? lignes.at(-5) : null; // 4 semaines plus tôt\nconst fmt = (n) => Number(n).toFixed(2).replace('.', ',');\nconst v = p ? ((d.prix - p.prix) / p.prix) * 100 : null;\nconst tendance = v === null ? 'première semaine suivie' : v > 1 ? 'en hausse' : v < -1 ? 'en baisse' : 'stable';\nconst veille = $('Lire les alertes').first()?.json ?? {};\nconst veilleActive = !veille.error && !!veille.veille_maj_le;\nconst nbAlertes = veilleActive ? (veille.alertes_mangue ?? []).length : null;\nconst echapper = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst sujet = `Mangue ${d.semaine} : prix ${tendance} sur le marché européen`;\nconst lignePrix = decale ? `Prix publié : ${fmt(decale.prix)} €/kg en ${decale.semaine} (les prix de la semaine sont réservés aux abonnés).` : '';\nconst ligneAlertes = nbAlertes === null ? ''\n  : nbAlertes ? `${nbAlertes} alerte(s) aux frontières de l'UE sur la mangue d'Afrique de l'Ouest ces 30 derniers jours. Le détail (pays, motif) est réservé aux abonnés.`\n  : \"Aucune alerte aux frontières de l'UE sur la mangue d'Afrique de l'Ouest ces 30 derniers jours.\";\nconst premium = 'Premium : le prix de la semaine, la lecture de l\\'analyste, le détail des alertes et le groupe WhatsApp privé.';\nconst appel = R.SITE\n  ? `<a href=\"${echapper(R.SITE)}/espace\" style=\"color:#146c43;font-weight:bold\">Ouvrir mon espace</a> (historique des prix, feux de conformité) ou répondez à cet e-mail.`\n  : 'Répondez simplement à cet e-mail pour en savoir plus.';\n\nconst html = `<!doctype html><html lang=\"fr\"><body style=\"margin:0;background:#f7f8f5;font-family:Arial,Helvetica,sans-serif;color:#0f1a14\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"padding:24px 12px\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:560px;background:#ffffff;border:1px solid #dfe4dc;border-radius:16px\">\n<tr><td style=\"background:#146c43;color:#ffffff;padding:18px 24px;border-radius:16px 16px 0 0\">\n  <div style=\"font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.8\">Bulletin gratuit · semaine ${d.semaine.slice(1)}</div>\n  <div style=\"font-size:20px;font-weight:bold;margin-top:4px\">Mangue · marché européen</div>\n</td></tr>\n<tr><td style=\"padding:24px\">\n  <div style=\"font-size:13px;color:#5b6a61;text-transform:uppercase;font-weight:bold\">Tendance de la semaine</div>\n  <div style=\"font-size:28px;font-weight:bold;margin-top:4px;color:${v !== null && v < -1 ? '#c2410c' : '#146c43'}\">Prix ${tendance}</div>\n  ${lignePrix ? `<p style=\"font-size:14px;line-height:1.5;color:#3d4a42\">${lignePrix}</p>` : ''}\n  ${ligneAlertes ? `<div style=\"margin-top:16px;padding:16px;border:1px solid #dfe4dc;border-radius:8px;font-size:14px;line-height:1.5\"><b>Conformité UE</b><br>${ligneAlertes}</div>` : ''}\n  <div style=\"margin-top:20px;padding:16px;border-left:4px solid #e8900c;background:#fdecd0;border-radius:8px;font-size:14px;line-height:1.5\">${premium}<br>${appel}</div>\n  <p style=\"margin-top:20px;font-size:12px;color:#5b6a61\">Source : RNM FranceAgriMer, marché de gros européen.</p>\n</td></tr>\n<tr><td style=\"padding:16px 24px;border-top:1px solid #dfe4dc;font-size:12px;color:#5b6a61\">\n  Vous recevez ce bulletin car vous vous êtes inscrit au pilote « Mangue ». <a href=\"__DESINSCRIPTION__\" style=\"color:#5b6a61\">Se désinscrire</a>\n</td></tr></table></td></tr></table></body></html>`;\nconst texte = `${sujet}\\n\\n${lignePrix}\\n${ligneAlertes}\\n\\n${premium}${R.SITE ? `\\nVotre espace : ${R.SITE}/espace` : ''}\\n\\nSe désinscrire : __DESINSCRIPTION__`;\nconst whatsapp = [`*Mangue · ${d.semaine} (bulletin gratuit)*`, `Prix ${tendance} sur le marché européen.`, lignePrix, ligneAlertes, `\\n_${premium}_`].filter(Boolean).join('\\n');\n\nconst lien = (j) => `${R.WEBHOOKS}/desinscription?j=${encodeURIComponent(j)}`;\nconst corps = parEmail.map((l) => ({\n  from: R.EXPEDITEUR, to: [l.email], reply_to: R.ADMIN, subject: sujet,\n  html: html.replace('__DESINSCRIPTION__', lien(l.jeton)), text: texte.replace('__DESINSCRIPTION__', lien(l.jeton)),\n  headers: { 'List-Unsubscribe': `<${lien(l.jeton)}>` },\n}));\nconst sorties = [];\nfor (let i = 0; i < corps.length; i += 100) sorties.push({ json: { chemin: 'emails/batch', corps: corps.slice(i, i + 100) } });\n\nsorties.push({ json: { chemin: 'emails', corps: {\n  from: R.EXPEDITEUR, to: [R.ADMIN], subject: `[Bulletin gratuit] ${sujet}`,\n  text: `Bulletin gratuit envoyé par e-mail à ${parEmail.length} inscrit(s).`\n    + (parWhatsapp.length ? `\\n${parWhatsapp.length} inscrit(s) par WhatsApp seulement : ${parWhatsapp.map((l) => l.whatsapp).join(', ')}.` : '')\n    + `\\n\\nMessage WhatsApp gratuit à copier dans la liste de diffusion :\\n\\n${whatsapp}`,\n} } });\nreturn sorties;"
+      },
+      "id": "2984a6c6-c9b6-57ac-a9c0-7db6fec7ba20",
+      "name": "Préparer le bulletin gratuit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.resend.com/{{ $json.chemin }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.corps) }}",
+        "options": {}
+      },
+      "name": "Envoyer le bulletin gratuit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        340
+      ],
+      "id": "c6624a88-47e3-5c05-a568-3bc30c958128",
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -154,7 +218,7 @@
       "main": [
         [
           {
-            "node": "Lire la semaine",
+            "node": "Réglages",
             "type": "main",
             "index": 0
           }
@@ -165,7 +229,7 @@
       "main": [
         [
           {
-            "node": "Lire la semaine",
+            "node": "Réglages",
             "type": "main",
             "index": 0
           }
@@ -188,6 +252,11 @@
         [
           {
             "node": "Lire les abonnés",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Lire les inscrits gratuits",
             "type": "main",
             "index": 0
           }
@@ -221,6 +290,39 @@
         [
           {
             "node": "Préparer le bulletin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Réglages": {
+      "main": [
+        [
+          {
+            "node": "Lire la semaine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire les inscrits gratuits": {
+      "main": [
+        [
+          {
+            "node": "Préparer le bulletin gratuit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer le bulletin gratuit": {
+      "main": [
+        [
+          {
+            "node": "Envoyer le bulletin gratuit",
             "type": "main",
             "index": 0
           }

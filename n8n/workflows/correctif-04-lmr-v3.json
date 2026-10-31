@@ -1,0 +1,172 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://api.datalake.sante.service.ec.europa.eu/sante/pesticides/pesticide-residues-products?format=json&product_code=0163030&language=FR&api-version=v3.0",
+        "options": {
+          "timeout": 60000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.nextLink ?? $response.body['@odata.nextLink'] ?? $response.body.next ?? '' }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !($response.body.nextLink ?? $response.body['@odata.nextLink'] ?? $response.body.next) }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "388da31b-754d-5ab0-8c51-546015c5ad1d",
+      "name": "Produits (base pesticides UE)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cherche l'identifiant de la mangue (code 0163030) dans la réponse de la base pesticides de l'UE (API v3.0).\n// L'API v3.0 peut écrire les champs en minuscules ou en MAJUSCULES : la recherche ignore la casse.\nconst champ = (x, ...cles) => {\n  if (!x || typeof x !== 'object') return null;\n  const parNom = new Map(Object.keys(x).map((k) => [k.toLowerCase(), k]));\n  for (const c of cles) { const k = parNom.get(c.toLowerCase()); if (k !== undefined && x[k] !== null && x[k] !== '') return x[k]; }\n  return null;\n};\nconst enregistrements = (j) => {\n  if (!j || typeof j !== 'object' || j.error) return [];\n  for (const k of ['value', 'data', 'items', 'results', 'records']) if (Array.isArray(j[k])) return j[k];\n  return Object.keys(j).some((k) => /_id$/i.test(k)) ? [j] : []; // réponse en tableau : n8n crée un élément par ligne\n};\nconst produits = $input.all().flatMap((i) => enregistrements(i.json));\nconst nom = (p) => String(champ(p, 'product_name', 'productName', 'name') ?? '');\nconst mangue = produits.find((p) => String(champ(p, 'product_code', 'productCode', 'code') ?? '').replace(/\\D/g, '') === '0163030')\n  ?? produits.find((p) => /^mangues?\\b/i.test(nom(p)))\n  ?? produits.find((p) => /mangue|mango/i.test(nom(p)));\nif (!mangue) {\n  // Identifiant fictif : les nœuds suivants ne trouveront rien et l'erreur sera notée dans ie.journal_collectes.\n  return [{ json: { product_id: '0', erreur: `LMR : mangue introuvable parmi ${produits.length} produits. Réponse : ${JSON.stringify($input.first().json).slice(0, 300)}` } }];\n}\nreturn [{ json: { product_id: champ(mangue, 'product_id', 'productId', 'id'), nom: nom(mangue) } }];"
+      },
+      "id": "103a561d-f46d-5744-9465-6176fc64f4fc",
+      "name": "Trouver la mangue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.datalake.sante.service.ec.europa.eu/sante/pesticides/pesticide-residues-mrls?format=json&PRODUCT_ID={{ $json.product_id }}&api-version=v3.0",
+        "options": {
+          "timeout": 60000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.nextLink ?? $response.body['@odata.nextLink'] ?? $response.body.next ?? '' }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !($response.body.nextLink ?? $response.body['@odata.nextLink'] ?? $response.body.next) }}",
+              "limitPagesFetched": true,
+              "maxRequests": 40,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "ea91b5e4-1f0f-53f0-9951-4adfb8b35c67",
+      "name": "LMR mangue (UE)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "https://api.datalake.sante.service.ec.europa.eu/sante/pesticides/pesticide-residues?format=json&pesticide_residue_lg=FR&api-version=v3.0",
+        "options": {
+          "timeout": 60000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.nextLink ?? $response.body['@odata.nextLink'] ?? $response.body.next ?? '' }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !($response.body.nextLink ?? $response.body['@odata.nextLink'] ?? $response.body.next) }}",
+              "limitPagesFetched": true,
+              "maxRequests": 40,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "441c585c-8260-5199-b239-0b2de41230fb",
+      "name": "Noms des substances",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Garde, pour chaque substance, la LMR mangue la plus récente (mg/kg). « 0.01* » = limite de quantification : on garde 0.01.\n// L'API v3.0 peut écrire les champs en minuscules ou en MAJUSCULES : la recherche ignore la casse.\nconst champ = (x, ...cles) => {\n  if (!x || typeof x !== 'object') return null;\n  const parNom = new Map(Object.keys(x).map((k) => [k.toLowerCase(), k]));\n  for (const c of cles) { const k = parNom.get(c.toLowerCase()); if (k !== undefined && x[k] !== null && x[k] !== '') return x[k]; }\n  return null;\n};\nconst enregistrements = (j) => {\n  if (!j || typeof j !== 'object' || j.error) return [];\n  for (const k of ['value', 'data', 'items', 'results', 'records']) if (Array.isArray(j[k])) return j[k];\n  return Object.keys(j).some((k) => /_id$/i.test(k)) ? [j] : []; // réponse en tableau : n8n crée un élément par ligne\n};\nconst valeurs = (nom) => { try { return $(nom).all().flatMap((i) => enregistrements(i.json)); } catch { return []; } };\nconst date = (v) => {\n  const s = String(v ?? '').trim();\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  return null;\n};\nconst nombre = (v) => {\n  const s = String(v ?? '').replace(',', '.').replace(/[^0-9.]/g, '');\n  return s && Number.isFinite(Number(s)) ? Number(s) : null;\n};\n\nconst noms = new Map();\nfor (const s of valeurs('Noms des substances')) {\n  const id = champ(s, 'pesticide_residue_id', 'pesticideResidueId', 'substance_id', 'id');\n  const n = champ(s, 'pesticide_residue_name', 'pesticideResidueName', 'substance_name', 'name', 'pesticide_residue_name_fr');\n  if (id !== null && n) noms.set(String(id), String(n));\n}\nconst mrls = valeurs('LMR mangue (UE)');\nconst parSubstance = new Map();\nfor (const m of mrls) {\n  const id = champ(m, 'pesticide_residue_id', 'pesticideResidueId', 'substance_id');\n  if (id === null) continue;\n  const l = {\n    residu_id: String(id),\n    residu_nom: noms.get(String(id)) ?? String(champ(m, 'pesticide_residue_name', 'pesticideResidueName', 'substance_name') ?? `substance n° ${id}`),\n    valeur: nombre(champ(m, 'mrl_value', 'mrlValue', 'mrl')),\n    unite: 'mg/kg',\n    date_application: date(champ(m, 'entry_into_force_date', 'entryIntoForceDate', 'applicability_date', 'application_date', 'date')),\n  };\n  const ex = parSubstance.get(l.residu_id);\n  if (!ex || (l.date_application && (!ex.date_application || l.date_application > ex.date_application))) parSubstance.set(l.residu_id, l);\n}\nconst lignes = [...parSubstance.values()];\nconst erreur = lignes.length ? '' : `LMR : aucune valeur lue. ${JSON.stringify($('Trouver la mangue').first().json.erreur ?? $('LMR mangue (UE)').first().json).slice(0, 300)}`;\nreturn [{ json: { lignes, recues: mrls.length, erreur } }];"
+      },
+      "id": "b96b768c-bd29-5ac6-9a57-d0f96bd05763",
+      "name": "Préparer les LMR",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        700
+      ],
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Produits (base pesticides UE)": {
+      "main": [
+        [
+          {
+            "node": "Trouver la mangue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trouver la mangue": {
+      "main": [
+        [
+          {
+            "node": "LMR mangue (UE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LMR mangue (UE)": {
+      "main": [
+        [
+          {
+            "node": "Noms des substances",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Noms des substances": {
+      "main": [
+        [
+          {
+            "node": "Préparer les LMR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

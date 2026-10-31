@@ -8,6 +8,9 @@ d'Afrique de l'Ouest vers l'Europe. Contexte détaillé : `docs/` (ne le relire 
   Polices : Bricolage Grotesque (titres, `font-display`) et Manrope (texte, `font-sans`), via Fontsource.
 - Données : `src/services/` est la seule porte d'entrée. Mangue : webhook n8n si `VITE_N8N_BAROMETRE_URL` est défini
   (repli automatique sur les données d'exemple) ; base métier dans Supabase, schéma `ie`. Les composants ne savent pas d'où viennent les données.
+- Espace membre : `/connexion` et `/espace` (`src/pages/`), lien magique Supabase Auth ; données via les fonctions
+  `public.espace_*` (`infra/supabase/06_espace_membre.sql`) qui décident gratuit / Premium dans la base. Sans
+  `VITE_SUPABASE_URL`, démonstration (`/espace?demo=premium`).
 - Automatisation : n8n sur Render gratuit (`n8n-mmc3.onrender.com`) + base Supabase + cron de réveil (`infra/n8n/`),
   **optionnel**. L'application doit fonctionner sans. Pas d'Assistant n8n (bac à sable impossible sur Render gratuit).
 - IA : modèles gratuits OpenRouter (`:free`). Pas de GPT ni Claude payants sans accord du porteur.

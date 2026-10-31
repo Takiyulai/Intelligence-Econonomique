@@ -1,0 +1,320 @@
+{
+  "name": "05 Membres (désinscription, nouveaux inscrits)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "desinscription",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "923ce6bb-7ebc-58ec-a63e-9354cf9a9da2",
+      "name": "Lien de désinscription (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "68196e13-c86a-5225-a7dc-5499b5fb0a9e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ouverture du lien de désinscription : on demande un clic sur un bouton, pour que les antivirus de messagerie\n// (qui ouvrent les liens tout seuls) ne désinscrivent personne par erreur.\nconst page = (titre, texte, extra = '') => `<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>${titre}</title></head>\n<body style=\"margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f7f8f5;font-family:Arial,Helvetica,sans-serif;color:#0f1a14\">\n<main style=\"max-width:440px;margin:24px;padding:32px 28px;background:#ffffff;border:1px solid #dfe4dc;border-radius:20px;text-align:center\">\n<div style=\"font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#146c43;font-weight:bold\">Baromètre mangue</div>\n<h1 style=\"font-size:22px;margin:12px 0\">${titre}</h1><p style=\"font-size:15px;line-height:1.6;color:#3d4a42\">${texte}</p>${extra}\n</main></body></html>`;\nconst j = String($json.query?.j ?? '').replace(/[^a-zA-Z0-9-]/g, '');\nconst bouton = `<form method=\"post\" action=\"?j=${j}\" style=\"margin-top:24px\"><input type=\"hidden\" name=\"j\" value=\"${j}\">\n<button type=\"submit\" style=\"background:#c2410c;color:#ffffff;border:0;font-size:15px;font-weight:bold;padding:14px 28px;border-radius:999px;cursor:pointer\">Me désinscrire</button></form>`;\nreturn [{ json: { html: j ? page('Se désinscrire ?', 'Vous ne recevrez plus le bulletin gratuit du vendredi.', bouton) : page('Lien invalide', 'Ce lien est incomplet.') } }];"
+      },
+      "id": "0e9e6c90-dca6-59dc-89b2-b6ed3f269cbf",
+      "name": "Page : se désinscrire ?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "22cbdcd2-9270-5760-9cce-283f456f6df3",
+      "name": "Afficher la question",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "desinscription",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d1a0c7bd-751a-59ad-b734-9c659ff89595",
+      "name": "Bouton désinscription (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        180
+      ],
+      "webhookId": "cab15e1c-dc2b-5405-9d32-be0fa6ee054f"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with m as (\n  update ie.prospects set statut = 'desinscrit', desinscrit_le = now(), maj_le = now()\n  where jeton = $1 and statut <> 'desinscrit'\n  returning statut\n)\nselect coalesce((select statut from m), (select statut from ie.prospects where jeton = $1), 'inconnu') as statut;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.body?.j || $json.query?.j || '') ] }}"
+        }
+      },
+      "id": "6dae27de-445b-5261-a8ee-48c34b2a29e6",
+      "name": "Désinscrire",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Page affichée après le clic sur « Me désinscrire ».\nconst page = (titre, texte, extra = '') => `<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>${titre}</title></head>\n<body style=\"margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f7f8f5;font-family:Arial,Helvetica,sans-serif;color:#0f1a14\">\n<main style=\"max-width:440px;margin:24px;padding:32px 28px;background:#ffffff;border:1px solid #dfe4dc;border-radius:20px;text-align:center\">\n<div style=\"font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#146c43;font-weight:bold\">Baromètre mangue</div>\n<h1 style=\"font-size:22px;margin:12px 0\">${titre}</h1><p style=\"font-size:15px;line-height:1.6;color:#3d4a42\">${texte}</p>${extra}\n</main></body></html>`;\nconst statut = $input.first()?.json?.statut ?? 'erreur';\nconst [titre, texte] = statut === 'desinscrit'\n  ? ['Vous êtes désinscrit', 'C\\'est fait : vous ne recevrez plus le bulletin. Vous pouvez vous réinscrire à tout moment depuis le site.']\n  : statut === 'inconnu'\n    ? ['Lien invalide', 'Ce lien est incomplet ou a expiré.']\n    : ['Un souci technique', 'La désinscription n\\'a pas pu être enregistrée. Répondez simplement à un de nos e-mails : nous le ferons à la main.'];\nreturn [{ json: { html: page(titre, texte) } }];"
+      },
+      "id": "9b86a5d6-f65e-5b61-8139-e8e3ccadddbf",
+      "name": "Page de désinscription",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "cf729e4b-12df-55ab-b1cb-b35c4df646ea",
+      "name": "Afficher la désinscription",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "cb3c1c86-1791-59cf-971c-0fbb9ab05fea",
+      "name": "Toutes les heures",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- membres confirmés depuis le dernier passage (une seule notification par personne)\nupdate ie.prospects set notifie_le = now()\nwhere notifie_le is null and statut in ('confirme', 'client') and confirme_le > now() - interval '7 days'\nreturning email, profil, source, to_char(confirme_le at time zone 'Africa/Abidjan', 'DD/MM HH24:MI') as quand;",
+        "options": {}
+      },
+      "id": "871bd149-6058-55d1-a2f1-ec52f3205b54",
+      "name": "Nouveaux membres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RÉGLAGES : mêmes valeurs que dans le nœud « Réglages » du workflow 02.\nconst EXPEDITEUR = 'Baromètre IE <onboarding@resend.dev>';\nconst ADMIN = 'a-remplacer@exemple.com'; // votre e-mail : reçoit la liste des nouveaux membres\n\n// Un seul e-mail pour vous, avec les membres confirmés depuis le dernier passage.\nconst PROFILS = { exportateur: 'Exportateur', cooperative: 'Coopérative', acheteur: 'Acheteur / importateur', institution: 'Institution', autre: 'Autre' };\nconst gens = $input.all().map((i) => i.json).filter((p) => p.email);\nif (!gens.length) return [];\nreturn [{ json: { chemin: 'emails', corps: {\n  from: EXPEDITEUR,\n  to: [ADMIN],\n  subject: `[Espace membre] ${gens.length} nouveau(x) membre(s)`,\n  text: gens.map((p) => `• ${p.email} · ${PROFILS[p.profil] ?? 'profil non précisé'} · source ${p.source} · ${p.quand}`).join('\\n')\n    + '\\n\\nIls reçoivent le bulletin gratuit du vendredi. Pour en passer un en Premium : Supabase → Table Editor → ie → abonnes → Insert row'\n    + ' (email, formule, date_fin), puis sa ligne prospects en statut « client ».',\n} } }];"
+      },
+      "id": "f8a540bd-bac4-5a83-8ffc-b148e1927d0e",
+      "name": "Préparer l'e-mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.resend.com/{{ $json.chemin }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.corps) }}",
+        "options": {}
+      },
+      "id": "b25aad60-6808-527d-9a45-73785376a5a5",
+      "name": "Envoyer l'e-mail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "width": 1100,
+        "height": 250,
+        "color": 4,
+        "content": "## 05 Membres : désinscription et nouveaux inscrits\nL'inscription et la connexion se font sur le site (espace membre, lien magique Supabase) : ce workflow ne s'en occupe plus.\n① Le lien « Se désinscrire » de chaque bulletin gratuit (`/webhook/desinscription`) affiche un bouton ; le clic passe la personne en `desinscrit` dans `ie.prospects`, sans avoir à se connecter.\n② Toutes les heures : un e-mail pour vous avec les membres confirmés depuis le dernier passage.\nCredentials : **Supabase IE** sur les 2 nœuds Postgres, **Resend** sur *Envoyer l'e-mail*. Réglages en haut de *Préparer l'e-mail*."
+      },
+      "id": "603b8692-94a6-5c96-b382-b1ac4dd48741",
+      "name": "Note membres",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -300
+      ]
+    }
+  ],
+  "connections": {
+    "Lien de désinscription (GET)": {
+      "main": [
+        [
+          {
+            "node": "Page : se désinscrire ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page : se désinscrire ?": {
+      "main": [
+        [
+          {
+            "node": "Afficher la question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bouton désinscription (POST)": {
+      "main": [
+        [
+          {
+            "node": "Désinscrire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Désinscrire": {
+      "main": [
+        [
+          {
+            "node": "Page de désinscription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page de désinscription": {
+      "main": [
+        [
+          {
+            "node": "Afficher la désinscription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Toutes les heures": {
+      "main": [
+        [
+          {
+            "node": "Nouveaux membres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouveaux membres": {
+      "main": [
+        [
+          {
+            "node": "Préparer l'e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer l'e-mail": {
+      "main": [
+        [
+          {
+            "node": "Envoyer l'e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Abidjan"
+  }
+}

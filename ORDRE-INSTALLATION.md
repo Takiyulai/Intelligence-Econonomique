@@ -11,8 +11,10 @@ Ouvrir chaque fichier avec le Bloc-notes (clic droit → Ouvrir avec → Bloc-no
 | A2 | `infra\supabase\02_abonnes.sql` | `abonnes` | ☐ |
 | A3 | `infra\supabase\03_flux_commerce.sql` | `flux_commerce`, `infos_manuelles`, `syntheses_commerce` | ☐ |
 | A4 | `infra\supabase\04_conformite.sql` | `alertes_conformite`, `lmr`, `journal_collectes` | ☑ (26/10) |
+| A5 | `infra\supabase\05_prospects.sql` | `prospects` (inscrits au bulletin gratuit) | ☐ |
+| A6 | `infra\supabase\06_espace_membre.sql` | `membres`, date de fin d'abonnement, fonctions de l'espace membre | ☐ |
 
-Vérifier : Supabase → **Table Editor** → menu *schema* → **ie** : les 9 tables apparaissent.
+Vérifier : Supabase → **Table Editor** → menu *schema* → **ie** : les 11 tables apparaissent.
 Les fichiers `.json` ne vont **jamais** dans Supabase.
 
 ## B. Credentials dans n8n (une seule fois, menu **Credentials → Create**)
@@ -30,11 +32,12 @@ Les fichiers sont dans `n8n\workflows\`. Après chaque import : choisir les cred
 | # | Fichier | À régler après l'import | Guide |
 |---|---|---|---|
 | C1 | `01_barometre-mangue.json` | credentials | `GUIDE-01-barometre-mangue.md` |
-| C2 | `02_bulletin-abonnes.json` | credentials + votre e-mail dans *Préparer les envois* | `GUIDE-02-bulletin-abonnes.md` |
+| C2 | `02_bulletin-abonnes.json` | credentials + vos réglages dans le nœud *Réglages* | `GUIDE-02-bulletin-abonnes.md` |
 | C3 | `03_donnees-commerce.json` | credentials + adresse du Google Sheet (2 nœuds) | `GUIDE-03-donnees-commerce.md` |
 | C4 | `04_veille-conformite.json` | credentials + adresse du Sheet + votre e-mail (2 nœuds) + `PAGES = 120` au 1er test | `GUIDE-04-veille-conformite.md` |
+| C5 | `05_membres.json` | credentials + votre e-mail dans *Préparer l'e-mail* | `GUIDE-ESPACE-MEMBRE.md` (étape 8) |
 
-Si le workflow 02 était déjà importé avant le 26/10 : le réimporter (nouvelle version avec la rubrique conformité).
+Si le workflow 02 était déjà importé avant le 27/10 : le réimporter (nouvelle version avec la rubrique conformité, le bulletin gratuit et le nœud *Réglages*).
 
 ## D. Google Sheet (pour C3 et C4)
 Importer `n8n\workflows\modele-google-sheet-03.xlsx` dans Google Drive, l'ouvrir avec Google Sheets.
@@ -43,3 +46,6 @@ Il contient les 3 onglets attendus : **cotations**, **infos**, **alertes**. Copi
 ## E. Site
 `.env.local` : `VITE_N8N_BAROMETRE_URL=https://dramanetaki.app.n8n.cloud/webhook/barometre-mangue` (déjà en place).
 Puis `npm run dev`. Les alertes du workflow 04 s'affichent toutes seules.
+
+## F. Espace membre (connexion, tableau de bord, abonnements)
+Suivre `GUIDE-ESPACE-MEMBRE.md` : réglages Supabase Auth, variables `VITE_SUPABASE_*` dans `.env.local`, test, mise en ligne.
