@@ -1,6 +1,5 @@
 import { Check, MessageCircle } from 'lucide-react'
 import Carte from './Carte'
-import PastilleStatut from './PastilleStatut'
 import type { Membre } from '../../services/espace'
 import { lienPremium } from '../../services/espace'
 import { dateCourte } from '../../services/marketData'
@@ -22,7 +21,7 @@ export default function AbonnementMembre({ membre }: { membre: Membre }) {
 
   return (
     <div className="grid gap-5 lg:grid-cols-2">
-      <Carte titre="Mon abonnement" action={<PastilleStatut abonnement={a} />}>
+      <Carte titre="Mon abonnement">
         {a.statut === 'premium' && (
           <dl className="grid grid-cols-2 gap-4 text-sm">
             <div>

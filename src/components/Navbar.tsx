@@ -43,16 +43,16 @@ export default function Navbar() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <a
-            href="/espace"
+            href="/connexion"
             className="hidden rounded-full px-3 py-2 text-sm font-semibold text-ink transition-colors hover:text-brand sm:inline-block"
           >
-            Mon espace
+            Se connecter
           </a>
           <a
-            href="#rejoindre"
+            href="/connexion?mode=inscription"
             className="hidden rounded-full bg-ink px-4 py-2 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 active:translate-y-0 sm:inline-block"
           >
-            Rejoindre le pilote
+            Créer un compte
           </a>
           <button
             type="button"
@@ -73,7 +73,7 @@ export default function Navbar() {
             exit={{ opacity: 0, y: -8 }}
             className="mx-4 mb-3 rounded-2xl border border-line bg-surface p-2 shadow-xl md:hidden"
           >
-            {[...liens, { href: '/espace', label: 'Mon espace' }, { href: '#rejoindre', label: 'Rejoindre le pilote' }].map((l) => (
+            {[...liens, { href: '/connexion', label: 'Se connecter' }, { href: '/connexion?mode=inscription', label: 'Créer un compte' }].map((l) => (
               <li key={l.href}>
                 <a
                   href={l.href}

@@ -112,7 +112,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.7 }}
-            className="mt-6 text-center text-base text-muted text-balance sm:text-lg"
+            className="mt-6 text-center text-base text-muted text-balance sm:text-lg lg:text-left"
           >
             Prix des marchés européens, tendances d'importation et alertes sur les normes, traduits en décisions
             simples pour les exportateurs, coopératives et PME d'Afrique de l'Ouest.
@@ -124,10 +124,10 @@ export default function Hero() {
             className="mt-8 grid gap-3 sm:mt-9 sm:grid-cols-2"
           >
             <a
-              href="#rejoindre"
+              href="/connexion?mode=inscription"
               className="group inline-flex items-center justify-center gap-2 rounded-full bg-brand px-6 py-3 font-semibold text-white shadow-lg shadow-brand/25 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-brand/30 active:translate-y-0 dark:text-[#06210f]"
             >
-              Recevoir le bulletin
+              Créer mon espace gratuit
               <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
             </a>
             <a

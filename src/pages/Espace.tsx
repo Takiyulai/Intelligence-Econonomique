@@ -12,7 +12,15 @@ import BulletinsMembre from '../components/espace/BulletinsMembre'
 import AbonnementMembre from '../components/espace/AbonnementMembre'
 import ProfilMembre from '../components/espace/ProfilMembre'
 import type { Onglet } from '../components/espace/types'
-import { deconnecter, espaceBranche, lireMembre, lireSession, lireTableau, surChangementSession } from '../services/espace'
+import {
+  appliquerInscriptionEnAttente,
+  deconnecter,
+  espaceBranche,
+  lireMembre,
+  lireSession,
+  lireTableau,
+  surChangementSession,
+} from '../services/espace'
 import type { Membre, Tableau } from '../services/espace'
 
 const onglets: { cle: Onglet; label: string; icone: LucideIcon }[] = [
@@ -65,8 +73,10 @@ export default function Espace() {
   const charger = useCallback(() => {
     setErreur('')
     Promise.all([lireMembre(), lireTableau()])
-      .then(([m, t]) => {
-        setMembre(m)
+      .then(async ([m, t]) => {
+        // retour d'une inscription Google : on enregistre l'accord pour le bulletin (sans bloquer l'affichage si ça échoue)
+        const apres = await appliquerInscriptionEnAttente().catch(() => undefined)
+        setMembre(apres ?? m)
         setTableau(t)
       })
       .catch(() => setErreur("Impossible de charger votre espace pour l'instant."))
@@ -149,8 +159,10 @@ export default function Espace() {
         <div className="min-w-0">
           <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
             <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
-              <div className="lg:hidden">
+              {/* mobile : pas de barre latérale, le statut se place à côté du logo */}
+              <div className="flex min-w-0 items-center gap-2 lg:hidden">
                 <Logo />
+                <PastilleStatut abonnement={membre.abonnement} />
               </div>
               <h1 className="hidden font-display text-xl font-bold lg:block">{titres[onglet]}</h1>
               <div className="flex items-center gap-2">

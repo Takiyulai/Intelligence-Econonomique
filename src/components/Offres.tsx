@@ -24,7 +24,7 @@ const offres = [
     nom: 'Premium',
     prix: '23 €',
     periode: '/mois',
-    detail: 'ou 230 €/an (2 mois offerts) · ≈ 15 000 FCFA/mois',
+    detail: 'ou 230 €/an (2 mois offerts)',
     texte: 'Pour décider chaque semaine.',
     points: [
       'Prix de la semaine, chaque vendredi à 8 h',
@@ -42,7 +42,7 @@ const offres = [
     nom: 'Rapports',
     prix: '115 €',
     periode: '/rapport',
-    detail: 'Fiche marché seule : 53 € · ≈ 75 000 FCFA le rapport',
+    detail: 'Fiche marché seule : 53 €',
     texte: 'Pour préparer une filière ou un marché.',
     points: ['Analyse sectorielle complète', 'Exigences par pays', 'Mise en relation acheteurs'],
     fondateurs: '',
@@ -95,12 +95,12 @@ export default function Offres() {
                     ))}
                   </ul>
                   <a
-                    href="#rejoindre"
+                    href="/connexion?mode=inscription"
                     className={`mt-8 rounded-full px-5 py-3 text-center font-semibold transition-all hover:-translate-y-0.5 ${
                       o.vedette ? 'bg-brand text-white dark:text-[#06210f]' : 'border border-line hover:border-brand/50'
                     }`}
                   >
-                    {o.vedette ? 'Devenir membre fondateur' : 'Je suis intéressé'}
+                    {o.vedette ? 'Devenir membre fondateur' : 'Créer mon compte'}
                   </a>
                 </div>
               </TiltCard>

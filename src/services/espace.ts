@@ -1,4 +1,4 @@
-// Seule porte d'entrée de l'espace membre : connexion par lien magique et données du tableau de bord.
+// Seule porte d'entrée de l'espace membre : connexion (lien magique ou Google) et données du tableau de bord.
 // Les droits (gratuit ou Premium) sont décidés dans Supabase par les fonctions public.espace_* (infra/supabase/06).
 // Sans Supabase configuré, tout fonctionne en démonstration avec des données d'exemple.
 import type { Session } from '@supabase/supabase-js'
@@ -143,6 +143,40 @@ export async function envoyerLien(
   if (error.status === 429 || /rate limit|security purposes/i.test(error.message))
     return { ok: false, message: 'Un lien vient déjà de partir. Patientez une minute avant de redemander.' }
   return { ok: false, message: "Le lien n'a pas pu être envoyé. Réessayez dans quelques minutes." }
+}
+
+const CLE_EN_ATTENTE = 'inscription-en-attente'
+
+/**
+ * Connexion ou inscription avec Google. Google ne transmet pas la case d'accord : on la garde dans le navigateur le temps
+ * de l'aller-retour, puis l'espace l'enregistre à l'arrivée (voir appliquerInscriptionEnAttente).
+ */
+export async function connexionGoogle(inscription?: { profil: Profil; consentement: boolean }): Promise<ResultatLien> {
+  if (!supabase) return { ok: true, demo: true }
+  if (inscription && !inscription.consentement) return { ok: false, message: "Cochez la case d'accord pour créer votre compte." }
+  try {
+    if (inscription) localStorage.setItem(CLE_EN_ATTENTE, JSON.stringify({ profil: inscription.profil }))
+  } catch {
+    /* stockage indisponible : l'accord pourra être donné dans le profil */
+  }
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${window.location.origin}/espace`, queryParams: { prompt: 'select_account' } },
+  })
+  return error ? { ok: false, message: 'La connexion Google a échoué. Réessayez ou utilisez votre e-mail.' } : { ok: true }
+}
+
+/** Après une inscription Google : inscrit au bulletin gratuit avec le profil choisi. Renvoie le membre à jour, ou rien. */
+export async function appliquerInscriptionEnAttente(): Promise<Membre | undefined> {
+  let attente: { profil?: Profil } | null = null
+  try {
+    attente = JSON.parse(localStorage.getItem(CLE_EN_ATTENTE) ?? 'null')
+    localStorage.removeItem(CLE_EN_ATTENTE)
+  } catch {
+    return undefined
+  }
+  if (!attente || !supabase) return undefined
+  return majProfil({ bulletin: true, ...(attente.profil ? { profil: attente.profil } : {}) })
 }
 
 export async function lireSession(): Promise<Session | null> {

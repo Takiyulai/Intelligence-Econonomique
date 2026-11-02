@@ -2,9 +2,10 @@
 
 Ce que les visiteurs vont vivre :
 ```
-Landing page (« Rejoindre » ou « Mon espace »)
-  └─► saisit son e-mail ─► reçoit un lien magique (pas de mot de passe)
-        └─► clic ─► compte confirmé ─► /espace
+Landing page : boutons « Créer un compte » / « Se connecter » (aucun formulaire sur l'accueil)
+  └─► page /connexion : onglet « Se connecter » ou « Créer un compte »
+        ├─► « Continuer avec Google » ─► choix du compte Google ─► /espace
+        └─► e-mail ─► lien magique (pas de mot de passe) ─► clic ─► /espace
               Gratuit : prix décalés de 4 semaines, début du commentaire, feux de conformité, profil, bulletin gratuit
               Premium : semaine en cours, analyses complètes, détail des alertes, infos terrain, note mensuelle, archive
               Abonnement : statut, date de fin, jours restants, bouton « Passer à Premium » / « Renouveler »
@@ -66,7 +67,7 @@ VITE_CONTACT_EMAIL=votre@email.com
 avec un message pré-rempli vers vous. Relancez `npm run dev`.
 
 ## Étape 5 : tester (5 min)
-1. http://localhost:5173 → section **Rejoindre** → votre e-mail → cochez la case → **S'inscrire**.
+1. http://localhost:5173 → **Créer un compte** → cochez la case d'accord → votre e-mail → **Créer mon compte**.
 2. Ouvrez l'e-mail reçu → **Ouvrir mon espace** : vous arrivez sur `/espace`, en accès **Gratuit**.
 3. Supabase → Table Editor → schéma **ie** → `membres` (votre fiche) et `prospects` (statut `confirme`).
 4. Passez-vous Premium : `ie.abonnes` → **Insert row** → `email` = votre adresse, `formule` = `premium`,
@@ -75,6 +76,10 @@ avec un message pré-rempli vers vous. Relancez `npm run dev`.
 5. Mettez `date_fin` à hier : l'espace affiche « Abonnement expiré » et repasse en vue gratuite.
 6. **Profil** : remplissez nom et WhatsApp → **Enregistrer**. Décochez le bulletin : vous ne recevrez plus le gratuit.
 7. **Sortir**, puis http://localhost:5173/connexion pour vous reconnecter.
+
+## Étape 5 bis : le bouton Google (20 min)
+Suivez [`GUIDE-CONNEXION-GOOGLE.md`](GUIDE-CONNEXION-GOOGLE.md). Avantage : avec Google, pas besoin d'e-mail de
+connexion, donc la connexion marche pour tout le monde même avant l'étape 6.
 
 ## Étape 6 : les e-mails pour tout le monde (avec votre domaine)
 Il faut un nom de domaine (environ 10 € par an), vérifié sur Resend (resend.com → **Domains** → **Add domain** →
@@ -90,7 +95,8 @@ Mettez aussi cet expéditeur dans le nœud **Réglages** du workflow 02 et dans 
 2. Allez sur https://app.netlify.com/drop (compte gratuit) et glissez le dossier `dist` dans la page.
    Netlify vous donne une adresse du type `https://nom-au-hasard.netlify.app` (renommable, ou votre domaine plus tard).
 3. Supabase → **Authentication → URL Configuration** : *Site URL* = cette adresse ; *Redirect URLs* → ajouter
-   `https://nom-au-hasard.netlify.app/**`.
+   `https://nom-au-hasard.netlify.app/**`. Google Cloud → **Clients** → votre client → *Origines JavaScript autorisées* :
+   ajoutez aussi cette adresse.
 4. n8n, workflow 02, nœud **Réglages** : `SITE` = cette adresse (lien « Ouvrir mon espace » dans le bulletin gratuit).
 À chaque modification du site : `npm run build` et glisser de nouveau `dist`.
 

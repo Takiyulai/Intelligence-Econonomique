@@ -1,8 +1,6 @@
 import { ArrowDownRight, ArrowRight, ArrowUpRight, UserRound } from 'lucide-react'
 import Carte from './Carte'
 import FeuxPays from './FeuxPays'
-import PastilleStatut from './PastilleStatut'
-import Verrou from './Verrou'
 import type { Onglet } from './types'
 import type { Membre, Tableau } from '../../services/espace'
 import { semaineDe } from '../../services/espace'
@@ -15,7 +13,6 @@ export default function VueEnsemble({ membre, tableau, aller }: { membre: Membre
   const avant = tableau.prix.at(-2)
   const v = dernier && avant ? ((dernier.prix - avant.prix) / avant.prix) * 100 : null
   const commentaire = tableau.commentaires[0]
-  const a = membre.abonnement
   const profilIncomplet = !membre.nom || !membre.profil
 
   return (
@@ -49,36 +46,6 @@ export default function VueEnsemble({ membre, tableau, aller }: { membre: Membre
         )}
       </Carte>
 
-      <Carte titre="Mon abonnement" action={<PastilleStatut abonnement={a} />}>
-        {a.statut === 'premium' ? (
-          <>
-            <p className="text-sm text-muted">{a.date_fin ? `Valable jusqu'au ${dateCourte(a.date_fin)}` : 'Sans date de fin'}</p>
-            {a.jours_restants != null && (
-              <p className="mt-2 font-display text-3xl font-extrabold tabular-nums">
-                {a.jours_restants} <span className="text-base font-medium text-muted">jour(s) restant(s)</span>
-              </p>
-            )}
-            <button className={`${lienCarte} mt-4`} onClick={() => aller('abonnement')}>Gérer <ArrowRight size={14} /></button>
-          </>
-        ) : (
-          <Verrou
-            email={membre.email}
-            titre={a.statut === 'expire' ? 'Votre abonnement a expiré' : 'Vous êtes en accès gratuit'}
-            texte="Premium : le prix de la semaine en cours, l'analyse complète, le détail des alertes et l'archive des bulletins."
-          />
-        )}
-      </Carte>
-
-      <Carte titre="Conformité UE" className="lg:col-span-2" action={<button className={lienCarte} onClick={() => aller('conformite')}>Détail <ArrowRight size={14} /></button>}>
-        <FeuxPays feux={tableau.feux} />
-        <p className="mt-3 text-sm text-muted">
-          {tableau.alertes_30j
-            ? `${tableau.alertes_30j} alerte(s) sur la mangue ces 30 derniers jours.`
-            : 'Aucune alerte sur la mangue ces 30 derniers jours.'}
-          {tableau.veille_maj_le && ` Veille du ${dateCourte(tableau.veille_maj_le)}.`}
-        </p>
-      </Carte>
-
       <Carte titre={profilIncomplet ? 'Complétez votre profil' : 'Mon profil'}>
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-full bg-surface-2 text-muted">
@@ -95,6 +62,16 @@ export default function VueEnsemble({ membre, tableau, aller }: { membre: Membre
           {profilIncomplet ? 'Compléter' : 'Modifier'} <ArrowRight size={14} />
         </button>
       </Carte>
+      <Carte titre="Conformité UE" className="lg:col-span-3" action={<button className={lienCarte} onClick={() => aller('conformite')}>Détail <ArrowRight size={14} /></button>}>
+        <FeuxPays feux={tableau.feux} />
+        <p className="mt-3 text-sm text-muted">
+          {tableau.alertes_30j
+            ? `${tableau.alertes_30j} alerte(s) sur la mangue ces 30 derniers jours.`
+            : 'Aucune alerte sur la mangue ces 30 derniers jours.'}
+          {tableau.veille_maj_le && ` Veille du ${dateCourte(tableau.veille_maj_le)}.`}
+        </p>
+      </Carte>
+
     </div>
   )
 }

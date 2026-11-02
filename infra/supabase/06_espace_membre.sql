@@ -1,4 +1,4 @@
--- Espace membre du site (/espace) : connexion par lien magique (Supabase Auth), profil, statut d'abonnement, tableau de bord.
+-- Espace membre du site (/espace) : connexion par lien magique ou Google (Supabase Auth), profil, statut d'abonnement, tableau de bord.
 -- À exécuter une fois après 01 à 05 : Supabase → SQL Editor → coller ce fichier → Run. Peut être relancé sans risque.
 --
 -- Principe de sécurité : le schéma « ie » reste invisible depuis le navigateur. Le site appelle seulement les 3 fonctions
@@ -24,30 +24,34 @@ create table if not exists ie.membres (
 alter table ie.membres enable row level security;
 revoke all on schema ie from anon, authenticated;
 
--- Quand une adresse est confirmée (premier clic sur le lien magique) : fiche membre + inscrit confirmé au bulletin gratuit.
+-- Quand une adresse est confirmée (premier clic sur le lien magique, ou première connexion Google) : fiche membre,
+-- et inscription au bulletin gratuit seulement si la personne a coché la case d'accord.
 create or replace function ie.membre_confirme() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
   meta jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
   p text := coalesce(meta ->> 'profil', '');
+  n text := left(coalesce(meta ->> 'full_name', meta ->> 'name', ''), 80);  -- fourni par Google
 begin
   if new.email_confirmed_at is null or new.email is null then return new; end if;
   if tg_op = 'UPDATE' and old.email_confirmed_at is not null then return new; end if;
   if p not in ('exportateur', 'cooperative', 'acheteur', 'institution', 'autre') then p := ''; end if;
 
-  insert into ie.membres (id, email, profil) values (new.id, lower(new.email), p)
+  insert into ie.membres (id, email, nom, profil) values (new.id, lower(new.email), n, p)
   on conflict (id) do nothing;
 
-  insert into ie.prospects (email, profil, source, statut, consentement_le, confirme_le)
-  values (lower(new.email), p, coalesce(nullif(meta ->> 'source', ''), 'site'), 'confirme',
-          case when meta ->> 'consentement' = 'oui' then now() end, now())
-  on conflict (email) where email is not null do update set
-    statut = case when ie.prospects.statut = 'client' then 'client' else 'confirme' end,
-    profil = coalesce(nullif(excluded.profil, ''), ie.prospects.profil),
-    consentement_le = coalesce(excluded.consentement_le, ie.prospects.consentement_le),
-    confirme_le = coalesce(ie.prospects.confirme_le, now()),
-    desinscrit_le = null,
-    maj_le = now();
+  if meta ->> 'consentement' = 'oui' then
+    insert into ie.prospects (email, nom, profil, source, statut, consentement_le, confirme_le)
+    values (lower(new.email), n, p, coalesce(nullif(meta ->> 'source', ''), 'site'), 'confirme', now(), now())
+    on conflict (email) where email is not null do update set
+      statut = case when ie.prospects.statut = 'client' then 'client' else 'confirme' end,
+      nom = coalesce(nullif(excluded.nom, ''), ie.prospects.nom),
+      profil = coalesce(nullif(excluded.profil, ''), ie.prospects.profil),
+      consentement_le = now(),
+      confirme_le = coalesce(ie.prospects.confirme_le, now()),
+      desinscrit_le = null,
+      maj_le = now();
+  end if;
   return new;
 end $$;
 
@@ -124,6 +128,12 @@ begin
   returning * into m;
   if not found then raise exception 'fiche membre introuvable' using errcode = '28000'; end if;
 
+  -- bulletin coché alors que la personne n'est pas encore dans la liste (compte Google, par exemple) : cocher vaut accord
+  if (donnees ->> 'bulletin')::boolean is true and not exists (select 1 from ie.prospects where email = m.email) then
+    insert into ie.prospects (email, nom, profil, source, statut, consentement_le, confirme_le)
+    values (m.email, m.nom, m.profil, 'espace', 'confirme', now(), now());
+  end if;
+
   -- même personne dans la liste du bulletin gratuit : on garde les deux fiches cohérentes
   update ie.prospects set
     nom = m.nom, profil = m.profil,
@@ -131,6 +141,7 @@ begin
                     then whatsapp else m.whatsapp end,
     statut = case when not (donnees ? 'bulletin') or statut = 'client' then statut
                   when (donnees ->> 'bulletin')::boolean then 'confirme' else 'desinscrit' end,
+    consentement_le = case when (donnees ->> 'bulletin')::boolean is true and statut <> 'confirme' then now() else consentement_le end,
     desinscrit_le = case when donnees ? 'bulletin' and not (donnees ->> 'bulletin')::boolean then now() else desinscrit_le end,
     maj_le = now()
   where email = m.email;
